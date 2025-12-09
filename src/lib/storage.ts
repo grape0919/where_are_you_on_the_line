@@ -1,5 +1,79 @@
-import type { ServiceItem, DoctorItem, PatientItem } from "@/types/domain";
-import { DEFAULT_SERVICE_OPTIONS, LS_KEYS } from "@/lib/constants";
+import type {
+  ServiceItem,
+  DoctorItem,
+  PatientItem,
+  ReservationData,
+  ReservationCapacityRule,
+} from "@/types/domain";
+import {
+  DEFAULT_SERVICE_OPTIONS,
+  LS_KEYS,
+  PATIENT_ID_PAD_LENGTH,
+  PATIENT_ID_PREFIX,
+} from "@/lib/constants";
+
+const MIN_PATIENT_SEQUENCE = 1;
+
+function formatPatientIdFromNumber(sequence: number): string {
+  const padded = Math.max(sequence, MIN_PATIENT_SEQUENCE).toString().padStart(PATIENT_ID_PAD_LENGTH, "0");
+  return `${PATIENT_ID_PREFIX}${padded}`;
+}
+
+function extractPatientSequence(id: string): number | null {
+  if (!id) return null;
+  const digits = id.replace(/\D/g, "");
+  if (!digits) return null;
+  const parsed = parseInt(digits, 10);
+  return Number.isFinite(parsed) && parsed >= MIN_PATIENT_SEQUENCE ? parsed : null;
+}
+
+function havePatientIdsChanged(original: PatientItem[], next: PatientItem[]): boolean {
+  if (original.length !== next.length) return true;
+  return original.some((patient, index) => patient.id !== next[index]?.id);
+}
+
+export function normalizePatientIds(patients: PatientItem[]): PatientItem[] {
+  const usedSequences = new Set<number>();
+  let nextSequence = MIN_PATIENT_SEQUENCE;
+
+  const claimSequence = (preferred?: number | null): number => {
+    if (preferred != null && !usedSequences.has(preferred)) {
+      usedSequences.add(preferred);
+      return preferred;
+    }
+    while (usedSequences.has(nextSequence)) {
+      nextSequence += 1;
+    }
+    usedSequences.add(nextSequence);
+    return nextSequence++;
+  };
+
+  return patients.map((patient) => {
+    const assigned = claimSequence(extractPatientSequence(patient.id));
+    const formatted = formatPatientIdFromNumber(assigned);
+    return patient.id === formatted ? patient : { ...patient, id: formatted };
+  });
+}
+
+export function getPatientsWithNormalizedIds(): PatientItem[] {
+  const list = getJSON<PatientItem[]>(LS_KEYS.patients) ?? [];
+  if (list.length === 0) {
+    return [];
+  }
+  const normalized = normalizePatientIds(list);
+  if (havePatientIdsChanged(list, normalized)) {
+    setJSON(LS_KEYS.patients, normalized);
+  }
+  return normalized;
+}
+
+export function generateNextPatientId(patients: PatientItem[]): string {
+  const maxSequence = patients.reduce((max, patient) => {
+    const parsed = extractPatientSequence(patient.id);
+    return parsed && parsed > max ? parsed : max;
+  }, 0);
+  return formatPatientIdFromNumber(maxSequence + 1);
+}
 
 export function getJSON<T>(key: string): T | null {
   try {
@@ -90,7 +164,7 @@ export function ensureDefaultPatients(): void {
   const today = new Date().toISOString().split("T")[0];
   const defaults: PatientItem[] = [
     {
-      id: "1",
+      id: formatPatientIdFromNumber(1),
       name: "김환자",
       age: 45,
       phone: "010-1111-2222",
@@ -99,7 +173,7 @@ export function ensureDefaultPatients(): void {
       notes: "정형외과 진료",
     },
     {
-      id: "2",
+      id: formatPatientIdFromNumber(2),
       name: "이환자",
       age: 32,
       phone: "010-2222-3333",
@@ -109,4 +183,49 @@ export function ensureDefaultPatients(): void {
     },
   ];
   setJSON(LS_KEYS.patients, defaults);
+}
+
+export function ensureDefaultReservations(): void {
+  const existing = getJSON<ReservationData[]>(LS_KEYS.reservations);
+  if (existing) return;
+  const today = new Date().toISOString().split("T")[0];
+  const defaults: ReservationData[] = [
+    {
+      reservationId: "R-20240101-AAAAAA",
+      name: "김환자",
+      patientId: "P001",
+      phone: "010-1111-2222",
+      service: "일반진료",
+      date: today,
+      timeSlot: "09:00",
+      estimatedWaitTime: 10,
+      createdAt: Date.now(),
+    },
+    {
+      reservationId: "R-20240101-BBBBBB",
+      name: "이환자",
+      patientId: "P002",
+      phone: "010-2222-3333",
+      service: "재진",
+      date: today,
+      timeSlot: "09:30",
+      estimatedWaitTime: 5,
+      createdAt: Date.now(),
+    },
+  ];
+  setJSON(LS_KEYS.reservations, defaults);
+}
+
+export function getReservationCapacityRules(): ReservationCapacityRule[] {
+  return getJSON<ReservationCapacityRule[]>(LS_KEYS.reservationCapacity) ?? [];
+}
+
+export function setReservationCapacityRules(rules: ReservationCapacityRule[]): void {
+  setJSON(LS_KEYS.reservationCapacity, rules);
+}
+
+export function ensureDefaultReservationCapacity(): void {
+  const existing = getJSON<ReservationCapacityRule[]>(LS_KEYS.reservationCapacity);
+  if (existing) return;
+  setJSON(LS_KEYS.reservationCapacity, []);
 }

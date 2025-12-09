@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
   push:
-    branches: [ v2 ]
+    branches: [v2]
 
 jobs:
   build-and-test:
@@ -13,11 +13,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'pnpm'
+          registry-url: https://registry.npmjs.org
+          cache: "pnpm"
 
       - name: Enable corepack
         run: corepack enable
@@ -33,4 +39,3 @@ jobs:
 
       - name: Test
         run: pnpm -s test
-

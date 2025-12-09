@@ -1,18 +1,78 @@
 "use client";
 
-import Link from "next/link";
+// import Link from "next/link";
+import { useEffect, useState } from "react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ClipboardList, Users, Settings, Calendar } from "lucide-react";
 
 export default function HomePage() {
+  const [token, setToken] = useState("");
+
+  useEffect(() => {
+    const dev = process.env.NEXT_PUBLIC_DEV_PREFILL === "true";
+    if (!dev) return;
+    // Create a demo queue item to test lookup
+    (async () => {
+      try {
+        const r = await fetch("/api/queue", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "테스트환자", age: 30, service: "일반진료", room: "101", doctor: "김의사" }),
+        });
+        if (r.ok) {
+          const data = await r.json();
+          setToken(data.token);
+        }
+      } catch (e) {
+        console.error("demo queue init failed", e);
+      }
+    })();
+  }, []);
+
+  const openQueue = () => {
+    if (!token) return alert("대기열 토큰을 입력하세요.");
+    const url = `/queue?token=${encodeURIComponent(token.trim())}`;
+    window.open(url, "_blank");
+  };
   return (
-    <div className="flex min-h-[100dvh] w-full items-center justify-center bg-gradient-to-b from-white to-slate-50 px-4 py-6 sm:px-6 sm:py-8">
+    <div className="flex min-h-[100dvh] w-full items-center justify-center bg-background px-4 py-6 sm:px-6 sm:py-8">
       <div className="w-full max-w-2xl space-y-6">
-        <header className="text-center">
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">올바른정형외과</h1>
-          <p className="text-muted-foreground mt-2 text-lg">대기열 관리 시스템</p>
+        <header className="flex items-center justify-between">
+          <div className="text-center w-full">
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">올바른정형외과</h1>
+            <p className="text-muted-foreground mt-2 text-lg">대기열 관리 시스템</p>
+          </div>
+          <div className="absolute right-4 top-4 sm:right-6 sm:top-6">
+            <ThemeToggle inline />
+          </div>
         </header>
+
+        {/* 내 대기열 찾기 */}
+        <Card className="rounded-2xl shadow-sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ClipboardList className="h-5 w-5" /> 내 대기열 찾기
+            </CardTitle>
+            <CardDescription>발급받은 토큰으로 내 대기 현황을 확인하세요.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-2">
+              <Input
+                placeholder="예: Q-ABCDEFG-123456"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                className="rounded-xl"
+                aria-label="대기열 토큰"
+              />
+              <Button className="rounded-xl" onClick={openQueue}>
+                조회
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 md:grid-cols-3">
           {/* 환자 접수 */}

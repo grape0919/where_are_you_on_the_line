@@ -36,8 +36,10 @@ A web app to manage patient queues and reservations in real time. Patients can r
 ## Environment
 
 - `NEXT_PUBLIC_APP_URL` for app URL
+
+Vitest automatically loads `.env.test`, so adjust this file if tests require specific values.
+
 - Redis (planned) for real-time queue/reservation
 - PostgreSQL (planned) for history/masters/accounts
 
 See `prompt/prd.md` for the English PRD and architecture details.
-

@@ -15,20 +15,23 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { ClipboardList, User2, Clock, CheckCircle, Copy, ExternalLink } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { useCreateQueue } from "@/lib/useQueue";
 import { getActiveDoctors, getActiveServices } from "@/lib/storage";
+import { getRegisterPrefill } from "@/lib/devDefaults";
 
 // 서비스/의료진 옵션은 storage 헬퍼를 통해 로드합니다.
 
 export default function RegisterPage() {
   const [serviceOptions, setServiceOptions] = useState(getActiveServices());
   const [doctorOptions, setDoctorOptions] = useState<{ value: string; label: string }[]>([]);
+  const prefill = getRegisterPrefill();
   const [formData, setFormData] = useState({
-    name: "",
-    age: "",
-    service: "",
-    room: "",
-    doctor: "",
+    name: prefill?.name ?? "",
+    age: prefill?.age ?? "",
+    service: prefill?.service ?? "",
+    room: prefill?.room ?? "",
+    doctor: prefill?.doctor ?? "",
   });
 
   const [successData, setSuccessData] = useState<{
@@ -123,11 +126,14 @@ export default function RegisterPage() {
   const selectedService = serviceOptions.find((option) => option.value === formData.service);
 
   return (
-    <div className="flex min-h-[100dvh] w-full items-start justify-center bg-gradient-to-b from-white to-slate-50 px-4 py-6 sm:px-6 sm:py-8">
+    <div className="flex min-h-[100dvh] w-full items-start justify-center bg-background px-4 py-6 sm:px-6 sm:py-8">
       <div className="w-full max-w-md space-y-4">
-        <header className="text-center">
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">환자 접수</h1>
-          <p className="text-muted-foreground mt-2">환자 정보를 입력하여 대기열에 등록하세요</p>
+        <header className="flex items-center justify-between">
+          <div className="text-center w-full">
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">환자 접수</h1>
+            <p className="text-muted-foreground mt-2">환자 정보를 입력하여 대기열에 등록하세요</p>
+          </div>
+          <ThemeToggle inline />
         </header>
 
         {!successData ? (

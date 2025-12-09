@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import type { QueueData } from "@/types/queue";
 import { SERVICE_WAIT_TIMES } from "@/lib/constants";
 
-// 임시 데이터 저장소 (실제로는 Redis/DB 사용 예정)
-const queueData = new Map<string, QueueData>();
+import { InMemoryQueueStore, RedisQueueStore, computeRemainingWait } from "@/lib/queueStore";
+import { isRedisEnabled } from "@/lib/env";
+
+// 저장소 선택 (환경변수 기반)
+const store = isRedisEnabled() ? new RedisQueueStore() : new InMemoryQueueStore();
+
 
 // GET: 대기열 상태 조회
 export async function GET(request: NextRequest) {
@@ -15,7 +19,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Token is required" }, { status: 400 });
     }
 
-    const queueItem = queueData.get(token);
+    const queueItem = store.get(token);
 
     if (!queueItem) {
       return NextResponse.json({ error: "Queue not found" }, { status: 404 });
@@ -23,8 +27,7 @@ export async function GET(request: NextRequest) {
 
     // 현재 시간 기준으로 남은 대기 시간 계산
     const now = Date.now();
-    const elapsedMinutes = Math.floor((now - queueItem.createdAt) / (1000 * 60));
-    const remainingWaitTime = Math.max(0, queueItem.estimatedWaitTime - elapsedMinutes);
+    const remainingWaitTime = computeRemainingWait(queueItem.createdAt, queueItem.estimatedWaitTime, now);
 
     return NextResponse.json({
       token: queueItem.token,
@@ -71,7 +74,7 @@ export async function POST(request: NextRequest) {
       updatedAt: now,
     };
 
-    queueData.set(token, queueItem);
+    store.set(queueItem);
 
     return NextResponse.json({
       token,
@@ -99,26 +102,21 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Token is required" }, { status: 400 });
     }
 
-    const queueItem = queueData.get(token);
+    const queueItem = store.get(token);
 
     if (!queueItem) {
       return NextResponse.json({ error: "Queue not found" }, { status: 404 });
     }
 
     // 업데이트 가능한 필드들만 수정
-    const updatedItem: QueueData = {
-      ...queueItem,
+    const updatedItem = store.update(token, {
       name: name ?? queueItem.name,
       age: age ?? queueItem.age,
       service: service ?? queueItem.service,
       room: room ?? queueItem.room,
       doctor: doctor ?? queueItem.doctor,
       estimatedWaitTime: estimatedWaitTime ?? queueItem.estimatedWaitTime,
-      updatedAt: Date.now(),
-    };
-
-    queueData.set(token, updatedItem);
-
+    });
     return NextResponse.json(updatedItem);
   } catch (error) {
     console.error("Queue update error:", error);
@@ -136,7 +134,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Token is required" }, { status: 400 });
     }
 
-    const deleted = queueData.delete(token);
+    const deleted = store.delete(token);
 
     if (!deleted) {
       return NextResponse.json({ error: "Queue not found" }, { status: 404 });
@@ -163,13 +161,10 @@ export async function PATCH(request: NextRequest) {
     const action = searchParams.get("action");
 
     if (action === "list") {
-      const queues = Array.from(queueData.values()).map((item) => ({
+      const queues = store.list().map((item) => ({
         ...item,
         elapsedMinutes: Math.floor((Date.now() - item.createdAt) / (1000 * 60)),
-        remainingWaitTime: Math.max(
-          0,
-          item.estimatedWaitTime - Math.floor((Date.now() - item.createdAt) / (1000 * 60))
-        ),
+        remainingWaitTime: computeRemainingWait(item.createdAt, item.estimatedWaitTime),
       }));
 
       return NextResponse.json({

@@ -5,8 +5,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { LayoutDashboard, Stethoscope, Users, Settings, Menu, X, Contact } from "lucide-react";
+import {
+  LayoutDashboard,
+  Stethoscope,
+  Users,
+  Settings,
+  Menu,
+  X,
+  Contact,
+  Calendar,
+  SlidersHorizontal,
+} from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const sidebarItems = [
   {
@@ -28,6 +38,16 @@ const sidebarItems = [
     title: "환자 관리",
     href: "/admin/patients",
     icon: Users,
+  },
+  {
+    title: "예약 관리",
+    href: "/admin/reservations",
+    icon: Calendar,
+  },
+  {
+    title: "정원 설정",
+    href: "/admin/reservations/capacity",
+    icon: SlidersHorizontal,
   },
   {
     title: "설정",
@@ -111,7 +131,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div className="flex items-center space-x-4">
             <h1 className="text-lg font-semibold">관리자 대시보드</h1>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-4">
+            <ThemeToggle inline />
             <Link href="/">
               <Button variant="outline" size="sm">
                 메인으로

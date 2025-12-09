@@ -215,6 +215,8 @@ pnpm add-component # shadcn/ui 컴포넌트 추가
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
+Vitest를 실행할 때는 `.env.test` 파일이 자동으로 로드되므로, 테스트 전용 값이 필요하면 이 파일을 수정하세요.
+
 ## 🤝 기여하기
 
 1. 이슈 생성 또는 기존 이슈 확인

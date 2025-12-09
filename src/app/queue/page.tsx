@@ -9,7 +9,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Clock, Bell, Smartphone, RefreshCw, Info, ClipboardList, User2 } from "lucide-react";
+import { Bell, Smartphone, RefreshCw, Info, ClipboardList } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useQueue, type QueueState } from "@/lib/useQueue";
 
@@ -130,7 +131,7 @@ export default function QueuePage() {
   // Early returns for different states
   if (!isClient) {
     return (
-      <div className="flex min-h-[100dvh] w-full items-center justify-center bg-gradient-to-b from-white to-slate-50 px-4 py-6">
+      <div className="flex min-h-[100dvh] w-full items-center justify-center bg-background px-4 py-6">
         <div className="text-center">
           <RefreshCw className="mx-auto mb-4 h-8 w-8 animate-spin" />
           <p>페이지를 불러오는 중...</p>
@@ -141,7 +142,7 @@ export default function QueuePage() {
 
   if (!token) {
     return (
-      <div className="flex min-h-[100dvh] w-full items-center justify-center bg-gradient-to-b from-white to-slate-50 px-4 py-6">
+      <div className="flex min-h-[100dvh] w-full items-center justify-center bg-background px-4 py-6">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle className="text-center text-red-600">접근 오류</CardTitle>
@@ -159,7 +160,7 @@ export default function QueuePage() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-[100dvh] w-full items-center justify-center bg-gradient-to-b from-white to-slate-50 px-4 py-6">
+      <div className="flex min-h-[100dvh] w-full items-center justify-center bg-background px-4 py-6">
         <div className="text-center">
           <RefreshCw className="mx-auto mb-4 h-8 w-8 animate-spin" />
           <p>대기열 정보를 불러오는 중...</p>
@@ -195,7 +196,7 @@ export default function QueuePage() {
   const { eta, name, age, service, room, doctor, estimatedWaitTime } = queueData;
 
   return (
-    <div className="flex min-h-[100dvh] w-full items-start justify-center bg-gradient-to-b from-white to-slate-50 px-4 py-6 sm:px-6 sm:py-8">
+    <div className="flex min-h-[100dvh] w-full items-start justify-center bg-background px-4 py-6 sm:px-6 sm:py-8">
       <div className="w-full max-w-md space-y-4">
         <header className="flex items-center justify-between">
           <div className="min-w-0 space-y-0.5">
@@ -218,6 +219,7 @@ export default function QueuePage() {
               </p>
             )}
           </div>
+          <ThemeToggle inline />
           <Button
             variant="ghost"
             size="icon"

@@ -6,9 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { Settings, Bell, Shield, Database, Palette } from "lucide-react";
+import { Settings, Bell, Database, Palette } from "lucide-react";
+import { useThemePreset } from "@/app/providers";
 
 export default function SettingsPage() {
+  const { theme, setTheme } = useThemePreset();
   return (
     <div className="space-y-6 p-6">
       {/* 시스템 설정 */}
@@ -142,14 +144,10 @@ export default function SettingsPage() {
               <Label>다크 모드</Label>
               <p className="text-muted-foreground text-sm">어두운 테마를 사용합니다.</p>
             </div>
-            <Switch />
-          </div>
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>컴팩트 모드</Label>
-              <p className="text-muted-foreground text-sm">더 조밀한 레이아웃을 사용합니다.</p>
-            </div>
-            <Switch />
+            <Switch
+              checked={theme === "dark"}
+              onCheckedChange={(v) => setTheme(v ? "dark" : "light")}
+            />
           </div>
         </CardContent>
       </Card>

@@ -28,10 +28,13 @@ This document defines the standard automated flow for code changes and PRs. It t
   - Or use `--body-file <path/to/body.md>` to pass a multi-line body.
 - Label: add `auto-generated`. If labels are unavailable, include `[gen by codex]` in the title.
 - Commands (choose one):
-  - `gh pr create --base main --head v2 --title "<TITLE>" --fill --label "auto-generated"`
-  - `gh pr create --base main --head v2 --title "<TITLE>" --body-file prompt/pr_body.md --label "auto-generated"`
+  - `gh pr create --base v2 --head feat/<name> --title "<TITLE>" --fill --label "auto-generated"`
+  - `gh pr create --base v2 --head feat/<name> --title "<TITLE>" --body-file prompt/pr_body.md --label "auto-generated"`
   - Requires `gh auth login` or `GH_TOKEN`.
 
+### Release PR
+- When v2 is ready to ship: open a PR from `v2` to `main` with the same rules and enable auto-merge (squash).
+- 
 ## Safety
 - No destructive operations (deletes, resets) without explicit request.
 - Keep changes scoped; avoid renaming public routes or API paths unless required.

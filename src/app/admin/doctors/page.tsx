@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Plus, Edit, Trash2, Save, X, AlertTriangle, User, Stethoscope } from "lucide-react";
+import { Plus, Edit, Trash2, Save, X, AlertTriangle } from "lucide-react";
 import { ensureDefaultDoctors, getJSON, setJSON } from "@/lib/storage";
 import { LS_KEYS } from "@/lib/constants";
 import type { DoctorItem } from "@/types/domain";

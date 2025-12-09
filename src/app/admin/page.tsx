@@ -1,7 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,24 +20,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Users,
-  Clock,
   Edit,
   Trash2,
   RefreshCw,
-  Plus,
   AlertTriangle,
   CheckCircle,
-  Eye,
-  Check,
+  TrendingUp,
 } from "lucide-react";
 
 import { getActiveDoctors, getActiveServices } from "@/lib/storage";
 import { formatMinutesCompact, formatTimeHM } from "@/lib/time";
+import { LineChart } from "@/components/charts/LineChart";
+import { AreaChart } from "@/components/charts/AreaChart";
+import { BarChart } from "@/components/charts/BarChart";
 
 type QueueItem = {
   token: string;
@@ -508,6 +512,89 @@ export default function AdminDashboard() {
           )}
         </CardContent>
       </Card>
+
+      {/* 차트 샘플 섹션 */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* 라인 차트 */}
+        <Card>
+          <CardHeader>
+            <CardTitle>환자 추세 (30일)</CardTitle>
+            <CardDescription>최근 30일 등록 수</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <LineChart />
+          </CardContent>
+          <CardFooter className="flex-col items-start gap-2 text-sm">
+            <div className="flex gap-2 leading-none font-medium">
+              Trending up by 5.2% this month <TrendingUp className="h-4 w-4" />
+            </div>
+            <div className="text-muted-foreground leading-none">
+              Showing total visitors for the last 6 months
+            </div>
+          </CardFooter>
+        </Card>
+
+        {/* 에어리어 차트 */}
+        <Card>
+          <CardHeader>
+            <CardTitle>대기 시간 추세 (예시)</CardTitle>
+            <CardDescription>평균 대기시간 가상의 수치</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <AreaChart />
+          </CardContent>
+          <CardFooter>
+            <div className="flex w-full items-start gap-2 text-sm">
+              <div className="grid gap-2">
+                <div className="flex items-center gap-2 leading-none font-medium">
+                  Trending up by 5.2% this month <TrendingUp className="h-4 w-4" />
+                </div>
+                <div className="text-muted-foreground flex items-center gap-2 leading-none">
+                  January - June 2024
+                </div>
+              </div>
+            </div>
+          </CardFooter>
+        </Card>
+
+        {/* 바 차트 */}
+        <Card>
+          <CardHeader>
+            <CardTitle>시간대별 접수 수 (예시)</CardTitle>
+            <CardDescription>09~18시</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <BarChart />
+          </CardContent>
+          <CardFooter className="flex-col items-start gap-2 text-sm">
+            <div className="flex gap-2 leading-none font-medium">
+              Trending up by 5.2% this month <TrendingUp className="h-4 w-4" />
+            </div>
+            <div className="text-muted-foreground leading-none">
+              Showing total visitors for the last 6 months
+            </div>
+          </CardFooter>
+        </Card>
+
+        {/* 파이 차트 */}
+        <Card>
+          <CardHeader>
+            <CardTitle>진료 항목 비중 (예시)</CardTitle>
+            <CardDescription>일반/재진/검사/처방</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <BarChart />
+          </CardContent>
+          <CardFooter className="flex-col items-start gap-2 text-sm">
+            <div className="flex gap-2 leading-none font-medium">
+              Trending up by 5.2% this month <TrendingUp className="h-4 w-4" />
+            </div>
+            <div className="text-muted-foreground leading-none">
+              Showing total visitors for the last 6 months
+            </div>
+          </CardFooter>
+        </Card>
+      </div>
     </div>
   );
 }

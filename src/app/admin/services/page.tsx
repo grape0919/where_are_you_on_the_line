@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import type { ChangeEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,12 @@ import { ensureDefaultServices, getJSON, setJSON } from "@/lib/storage";
 import { LS_KEYS } from "@/lib/constants";
 import type { ServiceItem } from "@/types/domain";
 import { Collapse } from "@/components/ui/collapse";
+import {
+  calculateWaitTimeStats,
+  getDefaultWaitTimeStrategy,
+  parseWaitTimeCsv,
+  type WaitTimeStat,
+} from "@/lib/waitTimeImport";
 
 // types imported
 
@@ -25,6 +32,34 @@ export default function ServicesPage() {
     label: "",
     waitTime: "",
   });
+  const [csvMeta, setCsvMeta] = useState<{
+    filename: string;
+    patientCount: number;
+    strategyLabel: string;
+  } | null>(null);
+  const [derivedWaits, setDerivedWaits] = useState<WaitTimeStat[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [applySummary, setApplySummary] = useState<{ updated: number; created: number } | null>(
+    null
+  );
+  const [isProcessingCsv, setIsProcessingCsv] = useState(false);
+  const [isConfirmingApply, setIsConfirmingApply] = useState(false);
+  const confirmStats = useMemo(() => {
+    return derivedWaits.reduce(
+      (acc, item) => {
+        const exists = services.some(
+          (service) => service.label === item.label || service.value === item.value
+        );
+        if (exists) {
+          acc.update += 1;
+        } else {
+          acc.create += 1;
+        }
+        return acc;
+      },
+      { update: 0, create: 0 }
+    );
+  }, [derivedWaits, services]);
 
   // 진료항목 목록 조회
   const fetchServices = async () => {
@@ -43,6 +78,93 @@ export default function ServicesPage() {
   const saveServices = (newServices: ServiceItem[]) => {
     setJSON(LS_KEYS.services, newServices);
     setServices(newServices);
+  };
+
+  /**
+   * handleCsvUpload reads the uploaded CSV file and derives wait times.
+   */
+  const handleCsvUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+
+    setIsProcessingCsv(true);
+    setUploadError(null);
+    setCsvMeta(null);
+    setDerivedWaits([]);
+    setApplySummary(null);
+    setIsConfirmingApply(false);
+
+    try {
+      const text = await file.text();
+      const dataset = parseWaitTimeCsv(text);
+      const result = calculateWaitTimeStats(dataset, getDefaultWaitTimeStrategy());
+      setCsvMeta({
+        filename: file.name,
+        patientCount: result.patientCount,
+        strategyLabel: result.strategy.label,
+      });
+      setDerivedWaits(result.stats);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "CSV 파싱 중 오류가 발생했습니다.";
+      setUploadError(message);
+    } finally {
+      setIsProcessingCsv(false);
+    }
+  };
+
+  /**
+   * handleOpenConfirm prompts the confirm UI for applying derived waits.
+   */
+  const handleOpenConfirm = () => {
+    if (!derivedWaits.length) return;
+    setApplySummary(null);
+    setIsConfirmingApply(true);
+  };
+
+  /**
+   * handleCancelConfirm closes the confirm prompt without applying.
+   */
+  const handleCancelConfirm = () => {
+    setIsConfirmingApply(false);
+  };
+
+  /**
+   * applyDerivedWaitTimes updates existing services or creates new ones with derived waits.
+   */
+  const applyDerivedWaitTimes = () => {
+    if (!derivedWaits.length) return;
+
+    const nextServices = [...services];
+    let updated = 0;
+    let created = 0;
+
+    derivedWaits.forEach((result) => {
+      const targetIndex = nextServices.findIndex(
+        (service) => service.label === result.label || service.value === result.value
+      );
+
+      if (targetIndex >= 0) {
+        nextServices[targetIndex] = { ...nextServices[targetIndex], waitTime: result.waitTime };
+        updated += 1;
+      } else {
+        const newService: ServiceItem = {
+          id: `auto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          value: result.value,
+          label: result.label,
+          waitTime: result.waitTime,
+          isActive: true,
+        };
+        nextServices.push(newService);
+        created += 1;
+      }
+    });
+
+    saveServices(nextServices);
+    setApplySummary({ updated, created });
+    setIsConfirmingApply(false);
   };
 
   // 진료항목 추가
@@ -158,6 +280,108 @@ export default function ServicesPage() {
           진료항목을 수정하면 기존 대기열의 예상 대기시간에 영향을 줄 수 있습니다.
         </AlertDescription>
       </Alert>
+
+      {/* CSV 업로드 및 자동 산출 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>CSV 기반 예상 대기시간 자동 산출</CardTitle>
+          <CardDescription>
+            환자별 대기시간 데이터(csv)를 업로드하면 진료 유형별 평균 대기시간을 계산하고 즉시
+            적용할 수 있습니다.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="csv-upload" className="text-sm font-medium">
+                Raw data 업로드 (CSV)
+              </Label>
+              <Input
+                id="csv-upload"
+                type="file"
+                accept=".csv"
+                onChange={handleCsvUpload}
+                disabled={isProcessingCsv}
+              />
+              <p className="text-muted-foreground text-xs">
+                헤더는 허리치료, 무릎치료, 어깨치료, 목치료, 손/팔꿈치 치료 순서를 따라야 합니다.
+              </p>
+            </div>
+            {csvMeta && (
+              <div className="bg-muted/30 rounded-lg border p-4 text-sm">
+                <p className="font-medium">{csvMeta.filename}</p>
+                <p className="text-muted-foreground">
+                  총 환자 수: {csvMeta.patientCount.toLocaleString()}명
+                </p>
+                <p className="text-muted-foreground">통계 방식: {csvMeta.strategyLabel}</p>
+              </div>
+            )}
+          </div>
+
+          {uploadError && (
+            <Alert variant="destructive">
+              <AlertDescription>{uploadError}</AlertDescription>
+            </Alert>
+          )}
+
+          {derivedWaits.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-medium">도출된 진료항목: {derivedWaits.length}개</p>
+                  <p className="text-muted-foreground text-sm">
+                    현재는 {csvMeta?.strategyLabel ?? "평균"} 기반으로 계산되며, 추후 다른
+                    알고리즘으로 확장될 수 있습니다.
+                  </p>
+                </div>
+                <Button onClick={handleOpenConfirm} disabled={isProcessingCsv}>
+                  결과값 자동 적용
+                </Button>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                {derivedWaits.map((item) => (
+                  <div key={item.label} className="rounded-lg border p-4">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium">{item.label}</p>
+                      <Badge variant="secondary">{item.waitTime}분</Badge>
+                    </div>
+                    <p className="text-muted-foreground text-sm">표본 수: {item.sampleSize}명</p>
+                  </div>
+                ))}
+              </div>
+
+              {isConfirmingApply && (
+                <Alert>
+                  <AlertDescription className="space-y-3">
+                    <p>
+                      기존 진료항목 {confirmStats.update}개를 업데이트하고, 신규 진료항목{" "}
+                      {confirmStats.create}개를 추가합니다. 계속 진행할까요?
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" onClick={applyDerivedWaitTimes}>
+                        확인
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={handleCancelConfirm}>
+                        취소
+                      </Button>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {applySummary && (
+                <Alert>
+                  <AlertDescription>
+                    기존 항목 {applySummary.updated}개 업데이트, 신규 항목 {applySummary.created}개
+                    추가 완료.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* 진료항목 목록 */}
       <Card>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,46 +14,115 @@ import {
 } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { Calendar as CalendarIcon, CheckCircle, AlertCircle } from "lucide-react";
-import { useCreateReservation } from "@/lib/useReservation";
+import { Calendar as CalendarIcon, CheckCircle, AlertCircle, Copy, Share2 } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import {
+  buildReservationMessage,
+  calculateSlotUsage,
+  getReservationLimits,
+  getReservationsByDate,
+  ReservationLimitError,
+  useCreateReservation,
+} from "@/lib/useReservation";
 import { format, isBefore, startOfDay } from "date-fns";
 import { ko } from "date-fns/locale";
 import { Calendar } from "@/components/ui/calendar";
-import { DEFAULT_SERVICE_OPTIONS } from "@/lib/constants";
+import { getReservationPrefill } from "@/lib/devDefaults";
+import {
+  DEFAULT_SERVICE_OPTIONS,
+  PATIENT_ID_PAD_LENGTH,
+  PATIENT_ID_PREFIX,
+  RESERVATION_TIME_SLOTS,
+} from "@/lib/constants";
+import type { ReservationData } from "@/types/domain";
+import { ensureDefaultPatients, getPatientsWithNormalizedIds } from "@/lib/storage";
+
+const sanitizePhoneNumber = (value: string) => value.replace(/\D/g, "");
+const extractPatientDigits = (value: string) => value.replace(/\D/g, "");
+const buildPatientId = (digits: string) => {
+  const numeric = extractPatientDigits(digits);
+  if (!numeric) return "";
+  return `${PATIENT_ID_PREFIX}${numeric.padStart(PATIENT_ID_PAD_LENGTH, "0")}`;
+};
+const patientDigitsPlaceholder = `예: ${"1".padStart(PATIENT_ID_PAD_LENGTH, "0")}`;
 
 // 서비스 옵션은 공통 상수를 사용합니다.
 
 export default function ReservationPage() {
   const [serviceOptions] = useState(DEFAULT_SERVICE_OPTIONS);
+  const prefill = getReservationPrefill();
   const [formData, setFormData] = useState({
-    name: "",
-    patientId: "",
-    phone: "",
-    service: "",
-    date: "",
+    name: prefill?.name ?? "",
+    patientIdDigits: prefill?.patientId ? extractPatientDigits(prefill.patientId) : "",
+    phone: prefill?.phone ?? "",
+    service: prefill?.service ?? "",
+    date: prefill?.date ?? "",
+    timeSlot: prefill?.timeSlot ?? "",
   });
 
   const [hasHistory, setHasHistory] = useState<boolean | null>(null);
-  const [successData, setSuccessData] = useState<{
-    reservationId: string;
-    name: string;
-    service: string;
-    estimatedWaitTime: number;
-    date: string;
-  } | null>(null);
+  const [successData, setSuccessData] = useState<ReservationData | null>(null);
+  const [slotUsage, setSlotUsage] = useState<Record<string, number>>({});
+  const [dailyCount, setDailyCount] = useState(0);
 
   const createReservationMutation = useCreateReservation();
+  const limits = useMemo(
+    () => getReservationLimits(formData.service, formData.date),
+    [formData.service, formData.date]
+  );
+  const refreshSlotUsage = useCallback(() => {
+    if (!formData.date) {
+      setSlotUsage({});
+      setDailyCount(0);
+      return;
+    }
+    const reservationsForDay = getReservationsByDate(formData.date);
+    const dayRelevant =
+      limits.perDayScope === "service" && formData.service
+        ? reservationsForDay.filter((reservation) => reservation.service === formData.service)
+        : reservationsForDay;
+    const slotRelevant =
+      limits.perSlotScope === "service" && formData.service
+        ? reservationsForDay.filter((reservation) => reservation.service === formData.service)
+        : reservationsForDay;
+    setSlotUsage(calculateSlotUsage(slotRelevant));
+    setDailyCount(dayRelevant.length);
+  }, [formData.date, formData.service, limits.perDayScope, limits.perSlotScope]);
+
+  useEffect(() => {
+    refreshSlotUsage();
+  }, [refreshSlotUsage, successData]);
+
+  useEffect(() => {
+    setHasHistory((prev) => (prev === null ? prev : null));
+  }, [formData.name, formData.patientIdDigits, formData.phone]);
 
   // 기존 방문 이력 확인
   const checkVisitHistory = async () => {
-    if (!formData.patientId || !formData.phone) {
-      alert("환자 ID와 전화번호를 입력해주세요.");
+    if (!formData.name || !formData.patientIdDigits || !formData.phone) {
+      alert("이름, 환자 ID, 전화번호를 모두 입력해주세요.");
+      return;
+    }
+
+    const resolvedPatientId = buildPatientId(formData.patientIdDigits);
+    if (!resolvedPatientId) {
+      alert("환자 ID는 숫자만 입력할 수 있습니다.");
       return;
     }
 
     try {
-      // 임시 로직: 환자 ID가 "P"로 시작하면 기존 환자로 간주
-      const hasVisited = formData.patientId.startsWith("P");
+      ensureDefaultPatients();
+      const patients = getPatientsWithNormalizedIds();
+      const targetName = formData.name.trim();
+      const targetPhone = sanitizePhoneNumber(formData.phone);
+      const match = patients.find(
+        (patient) =>
+          patient.id === resolvedPatientId &&
+          patient.name.trim() === targetName &&
+          sanitizePhoneNumber(patient.phone) === targetPhone
+      );
+
+      const hasVisited = Boolean(match);
       setHasHistory(hasVisited);
 
       if (!hasVisited) {
@@ -71,12 +140,19 @@ export default function ReservationPage() {
 
     if (
       !formData.name ||
-      !formData.patientId ||
+      !formData.patientIdDigits ||
       !formData.phone ||
       !formData.service ||
-      !formData.date
+      !formData.date ||
+      !formData.timeSlot
     ) {
       alert("모든 필드를 입력해주세요.");
+      return;
+    }
+
+    const resolvedPatientId = buildPatientId(formData.patientIdDigits);
+    if (!resolvedPatientId) {
+      alert("환자 ID는 숫자만 입력할 수 있습니다.");
       return;
     }
 
@@ -93,41 +169,101 @@ export default function ReservationPage() {
     try {
       const result = await createReservationMutation.mutateAsync({
         name: formData.name,
-        patientId: formData.patientId,
+        patientId: resolvedPatientId,
         phone: formData.phone,
         service: formData.service,
         date: formData.date,
+        timeSlot: formData.timeSlot,
       });
 
-      setSuccessData({
-        reservationId: result.reservationId,
-        name: result.name,
-        service: result.service,
-        estimatedWaitTime: result.estimatedWaitTime,
-        date: result.date,
-      });
+      setSuccessData(result);
 
       // 폼 초기화
       setFormData({
         name: "",
-        patientId: "",
+        patientIdDigits: "",
         phone: "",
         service: "",
         date: "",
+        timeSlot: "",
       });
       setHasHistory(null);
     } catch (error) {
+      if (error instanceof ReservationLimitError) {
+        alert(error.message);
+        refreshSlotUsage();
+        return;
+      }
       console.error("예약 실패:", error);
       alert("예약 중 오류가 발생했습니다. 다시 시도해주세요.");
+      refreshSlotUsage();
     }
   };
 
+  const handleSelectTimeSlot = (slot: string) => {
+    const usage = slotUsage[slot] ?? 0;
+    if (isDailyLimitReached || usage >= limits.perSlot) {
+      alert("선택한 시간대는 예약이 마감되었습니다.");
+      return;
+    }
+    setFormData((prev) => ({ ...prev, timeSlot: slot }));
+  };
+
+  const clipboardMessage = useMemo(
+    () => (successData ? buildReservationMessage(successData, { channel: "clipboard" }) : null),
+    [successData]
+  );
+
+  const shareMessage = useMemo(
+    () => (successData ? buildReservationMessage(successData, { channel: "sms" }) : null),
+    [successData]
+  );
+
+  const handleCopySummary = async () => {
+    if (!clipboardMessage) return;
+    try {
+      await navigator.clipboard.writeText(clipboardMessage.body);
+      alert("예약 정보가 복사되었습니다.");
+    } catch (error) {
+      console.error("예약 정보 복사 실패:", error);
+      alert("복사에 실패했습니다. 다시 시도해주세요.");
+    }
+  };
+
+  const handleShareSummary = async () => {
+    if (!shareMessage) return;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: shareMessage.title,
+          text: shareMessage.body,
+        });
+        return;
+      } catch (error) {
+        console.error("예약 정보 공유 실패:", error);
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(shareMessage.body);
+      alert("예약 정보가 복사되었습니다.");
+    } catch (error) {
+      console.error("예약 정보 공유 실패:", error);
+      alert("공유가 지원되지 않아 예약 정보를 복사했습니다. 다시 시도해주세요.");
+    }
+  };
+
+  const isDailyLimitReached =
+    !!formData.date && limits.perDay > 0 && dailyCount >= limits.perDay;
+
   return (
-    <div className="flex min-h-[100dvh] w-full items-start justify-center bg-gradient-to-b from-white to-slate-50 px-4 py-6 sm:px-6 sm:py-8">
+    <div className="bg-background flex min-h-[100dvh] w-full items-start justify-center px-4 py-6 sm:px-6 sm:py-8">
       <div className="w-full max-w-md space-y-4">
-        <header className="text-center">
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">예약 등록</h1>
-          <p className="text-muted-foreground mt-2">기존 환자의 진료 예약을 등록하세요</p>
+        <header className="flex items-center justify-between">
+          <div className="w-full text-center">
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">예약 등록</h1>
+            <p className="text-muted-foreground mt-2">기존 환자의 진료 예약을 등록하세요</p>
+          </div>
+          <ThemeToggle inline />
         </header>
 
         {!successData ? (
@@ -153,16 +289,30 @@ export default function ReservationPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="patientId">환자 ID *</Label>
-                  <Input
-                    id="patientId"
-                    value={formData.patientId}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, patientId: e.target.value }))
-                    }
-                    placeholder="P001"
-                    required
-                  />
+                  <Label htmlFor="patientIdDigits">환자 ID *</Label>
+                  <div className="flex">
+                    <span className="border-input bg-muted text-muted-foreground flex h-9 items-center rounded-l-md border border-r-0 px-3 text-sm font-medium">
+                      {PATIENT_ID_PREFIX}
+                    </span>
+                    <Input
+                      id="patientIdDigits"
+                      value={formData.patientIdDigits}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          patientIdDigits: extractPatientDigits(e.target.value),
+                        }))
+                      }
+                      placeholder={patientDigitsPlaceholder}
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      className="rounded-l-none border-l-0"
+                      required
+                    />
+                  </div>
+                  <p className="text-muted-foreground text-sm">
+                    P 접두사는 고정이며 숫자만 입력하세요.
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -242,6 +392,48 @@ export default function ReservationPage() {
                   </Alert>
                 )}
 
+                <div className="space-y-2">
+                  <Label>예약 시간 *</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {RESERVATION_TIME_SLOTS.map((slot) => {
+                      const selected = formData.timeSlot === slot.value;
+                      const usage = slotUsage[slot.value] ?? 0;
+                      const slotFull = usage >= limits.perSlot || isDailyLimitReached;
+                      return (
+                        <Button
+                          key={slot.value}
+                          type="button"
+                          variant={selected ? "default" : "outline"}
+                          onClick={() => handleSelectTimeSlot(slot.value)}
+                          aria-pressed={selected}
+                          className="h-16 flex flex-col items-center justify-center gap-1 px-2 text-sm"
+                          disabled={slotFull}
+                        >
+                          <span className="font-medium leading-none">{slot.label}</span>
+                          <span className="text-xs text-muted-foreground leading-none">
+                            {usage}/{limits.perSlot}
+                          </span>
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    시간대 정원 {limits.perSlot}명
+                    {limits.perSlotScope === "service" ? " (서비스 기준)" : " (전체 기준)"} · 일일 정원{" "}
+                    {limits.perDay}명
+                    {limits.perDayScope === "service" ? " (서비스 기준)" : " (전체 기준)"}
+                  </p>
+                  {isDailyLimitReached && (
+                    <Alert>
+                      <AlertCircle className="h-4 w-4 text-red-500" />
+                      <AlertTitle>예약 마감</AlertTitle>
+                      <AlertDescription>
+                        선택한 날짜의 예약 정원이 모두 찼습니다. 다른 날짜를 선택해주세요.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+
                 {/* 방문 이력 확인 섹션 */}
                 <div className="space-y-3">
                   <Separator />
@@ -281,7 +473,7 @@ export default function ReservationPage() {
                     type="button"
                     variant="outline"
                     onClick={checkVisitHistory}
-                    disabled={!formData.patientId || !formData.phone}
+                    disabled={!formData.name || !formData.patientIdDigits || !formData.phone}
                     className="w-full"
                   >
                     방문 이력 확인
@@ -292,7 +484,11 @@ export default function ReservationPage() {
                   type="submit"
                   className="w-full"
                   disabled={
-                    !hasHistory || hasHistory === null || createReservationMutation.isPending
+                    !hasHistory ||
+                    hasHistory === null ||
+                    !formData.timeSlot ||
+                    createReservationMutation.isPending ||
+                    isDailyLimitReached
                   }
                 >
                   {createReservationMutation.isPending ? "예약 중..." : "예약 등록"}
@@ -324,6 +520,10 @@ export default function ReservationPage() {
                   <span className="font-medium">{successData.date}</span>
                 </div>
                 <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground text-sm">예약 시간</span>
+                  <span className="font-medium">{successData.timeSlot}</span>
+                </div>
+                <div className="flex items-center justify-between">
                   <span className="text-muted-foreground text-sm">예상 대기시간</span>
                   <span className="font-medium">{successData.estimatedWaitTime}분</span>
                 </div>
@@ -331,6 +531,17 @@ export default function ReservationPage() {
                   <span className="text-muted-foreground text-sm">예약번호</span>
                   <span className="font-mono font-medium">{successData.reservationId}</span>
                 </div>
+              </div>
+
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={handleCopySummary}>
+                  <Copy className="mr-2 h-4 w-4" />
+                  예약 정보 복사
+                </Button>
+                <Button variant="outline" className="flex-1" onClick={handleShareSummary}>
+                  <Share2 className="mr-2 h-4 w-4" />
+                  예약 정보 공유
+                </Button>
               </div>
 
               <Button onClick={() => setSuccessData(null)} className="w-full" variant="secondary">
