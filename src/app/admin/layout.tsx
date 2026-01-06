@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -59,6 +59,15 @@ const sidebarItems = [
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/admin/auth", { method: "DELETE" });
+    } finally {
+      router.replace("/admin/login");
+    }
+  };
 
   return (
     <div className="bg-background flex h-screen">
@@ -138,6 +147,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 메인으로
               </Button>
             </Link>
+            <Button variant="outline" size="sm" onClick={handleLogout}>
+              로그아웃
+            </Button>
           </div>
         </header>
 

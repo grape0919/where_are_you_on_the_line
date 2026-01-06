@@ -16,11 +16,32 @@ export function useQueue(token: string) {
     },
     // 토큰이 있을 때만 쿼리 실행
     enabled: !!token,
-    // 3분마다 폴링
-    refetchInterval: token ? 3 * 60 * 1000 : false, // 3분
+    // 1분마다 폴링
+    refetchInterval: token ? 60 * 1000 : false, // 1분
     refetchOnWindowFocus: true,
     refetchOnMount: true,
     retry: 3,
+    retryDelay: 1000,
+  });
+}
+
+export type ServiceWaitTimesResponse = {
+  updatedAt: number;
+  services: { service: string; waitingCount: number; remainingTotalMinutes: number }[];
+};
+
+export function useServiceWaitTimes() {
+  return useQuery<ServiceWaitTimesResponse>({
+    queryKey: ["queue", "serviceWaitTimes"],
+    queryFn: async () => {
+      const r = await fetch("/api/queue?action=serviceWaitTimes", { cache: "no-store" });
+      if (!r.ok) throw new Error("Failed to fetch service wait times");
+      return r.json();
+    },
+    refetchInterval: 60 * 1000,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
+    retry: 2,
     retryDelay: 1000,
   });
 }

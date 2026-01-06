@@ -11,6 +11,7 @@ function shimEnvFileForVitest() {
   }
   const originalReadFileSync = fs.readFileSync.bind(fs);
   const envBuffer = originalReadFileSync(envTestPath);
+  type ReadFileSyncOptions = Parameters<typeof fs.readFileSync>[1];
 
   const toResolvedString = (target: fs.PathOrFileDescriptor): string | null => {
     if (typeof target === "string") {
@@ -21,7 +22,7 @@ function shimEnvFileForVitest() {
 
   const getStringOutput = (
     source: Buffer,
-    options?: { encoding?: BufferEncoding | null } | BufferEncoding | null
+    options?: ReadFileSyncOptions
   ) => {
     if (!options) {
       return Buffer.from(source);
@@ -29,13 +30,16 @@ function shimEnvFileForVitest() {
     if (typeof options === "string") {
       return source.toString(options);
     }
-    if (typeof options.encoding === "string") {
-      return source.toString(options.encoding);
+    if (typeof options === "object" && options && "encoding" in options) {
+      const encoding = options.encoding;
+      if (typeof encoding === "string") {
+        return source.toString(encoding);
+      }
     }
     return Buffer.from(source);
   };
 
-  fs.readFileSync = ((filePath: fs.PathOrFileDescriptor, options?: any) => {
+  fs.readFileSync = ((filePath: fs.PathOrFileDescriptor, options?: ReadFileSyncOptions) => {
     const resolved = toResolvedString(filePath);
     if (resolved && resolved === envPath) {
       return getStringOutput(envBuffer, options);

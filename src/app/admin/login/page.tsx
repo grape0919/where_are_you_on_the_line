@@ -1,0 +1,107 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ThemeToggle } from "@/components/ThemeToggle";
+
+function sanitizeNext(nextValue: string | null): string {
+  if (!nextValue) return "/admin";
+  if (nextValue.startsWith("/admin")) return nextValue;
+  return "/admin";
+}
+
+export default function AdminLoginPage() {
+  const router = useRouter();
+  const [nextPath, setNextPath] = useState("/admin");
+  const [error, setError] = useState<string | null>(null);
+
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    setNextPath(sanitizeNext(sp.get("next")));
+    setError(sp.get("error"));
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMessage(null);
+    setSubmitting(true);
+    try {
+      const r = await fetch("/api/admin/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+
+      if (!r.ok) {
+        const data = (await r.json().catch(() => null)) as { error?: string } | null;
+        setMessage(data?.error ?? "로그인에 실패했습니다.");
+        return;
+      }
+
+      router.replace(nextPath);
+    } catch (e) {
+      console.error("Admin login failed:", e);
+      setMessage("로그인 중 오류가 발생했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="bg-background flex min-h-[100dvh] w-full items-center justify-center px-4 py-6">
+      <Card className="w-full max-w-md rounded-2xl shadow-sm">
+        <CardHeader className="space-y-2">
+          <div className="flex items-center justify-between">
+            <CardTitle>관리자 로그인</CardTitle>
+            <ThemeToggle inline />
+          </div>
+          <CardDescription>관리자 비밀번호를 입력해 주세요.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {error === "missing-secret" && (
+            <Alert>
+              <AlertTitle>설정 필요</AlertTitle>
+              <AlertDescription>
+                서버 환경변수 <span className="font-mono">ADMIN_SECRET</span>이 설정되지 않았습니다.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {message && (
+            <Alert>
+              <AlertTitle>오류</AlertTitle>
+              <AlertDescription>{message}</AlertDescription>
+            </Alert>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="password">비밀번호</Label>
+              <Input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="관리자 비밀번호"
+                required
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={submitting}>
+              {submitting ? "로그인 중..." : "로그인"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

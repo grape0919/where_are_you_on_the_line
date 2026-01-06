@@ -3,3 +3,9 @@
 - CSV 기반 진료항목 대기시간 자동 산출 기능 초안 완료(업로드, 검증, confirm, 적용 흐름 포함).
 - CSV 헤더 동적 파싱 + 통계 전략 추상화(평균 기본)로 비즈니스 로직을 재구성했다.
 - Vitest가 `.env.test`를 사용하도록 환경 파일 shim과 문서를 추가했다.
+
+## 2026-01-06
+
+- Added admin password-based access control using `ADMIN_SECRET` (middleware + signed HttpOnly cookie + API enforcement).
+- Added QR code generation on register success, with image copy + download actions.
+- Updated patient queue polling to 1-minute refresh and added per-service remaining wait time aggregation + display.

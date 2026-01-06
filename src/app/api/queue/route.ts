@@ -4,16 +4,67 @@ import { SERVICE_WAIT_TIMES } from "@/lib/constants";
 
 import { InMemoryQueueStore, RedisQueueStore, computeRemainingWait } from "@/lib/queueStore";
 import { isRedisEnabled } from "@/lib/env";
+import { ADMIN_COOKIE_NAME, verifyAdminSessionValue } from "@/lib/adminAuth";
 
 // 저장소 선택 (환경변수 기반)
 const store = isRedisEnabled() ? new RedisQueueStore() : new InMemoryQueueStore();
 
+async function isAdminAuthorized(request: NextRequest): Promise<boolean> {
+  const secret = process.env.ADMIN_SECRET;
+  if (!secret) return false;
+  const cookie = request.cookies.get(ADMIN_COOKIE_NAME)?.value;
+  return verifyAdminSessionValue(cookie, secret);
+}
+
+function unauthorized(): NextResponse {
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+}
 
 // GET: 대기열 상태 조회
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
+    const action = searchParams.get("action");
     const token = searchParams.get("token");
+
+    if (action === "serviceWaitTimes") {
+      const now = Date.now();
+      const items = store.list();
+      const byService = new Map<
+        string,
+        { service: string; waitingCount: number; remainingTotalMinutes: number }
+      >();
+
+      for (const item of items) {
+        const remaining = computeRemainingWait(item.createdAt, item.estimatedWaitTime, now);
+        if (remaining <= 0) continue;
+        const key = item.service || "기타";
+        const curr = byService.get(key) ?? {
+          service: key,
+          waitingCount: 0,
+          remainingTotalMinutes: 0,
+        };
+        curr.waitingCount += 1;
+        curr.remainingTotalMinutes += remaining;
+        byService.set(key, curr);
+      }
+
+      for (const serviceName of Object.keys(SERVICE_WAIT_TIMES)) {
+        if (!byService.has(serviceName)) {
+          byService.set(serviceName, {
+            service: serviceName,
+            waitingCount: 0,
+            remainingTotalMinutes: 0,
+          });
+        }
+      }
+
+      const services = Array.from(byService.values()).sort((a, b) =>
+        a.service.localeCompare(b.service, "ko")
+      );
+
+      return NextResponse.json({ updatedAt: now, services });
+    }
 
     if (!token) {
       return NextResponse.json({ error: "Token is required" }, { status: 400 });
@@ -95,6 +146,10 @@ export async function POST(request: NextRequest) {
 // PUT: 대기열 정보 업데이트 (관리자용)
 export async function PUT(request: NextRequest) {
   try {
+    if (!(await isAdminAuthorized(request))) {
+      return unauthorized();
+    }
+
     const body = await request.json();
     const { token, name, age, service, room, doctor, estimatedWaitTime } = body;
 
@@ -127,6 +182,10 @@ export async function PUT(request: NextRequest) {
 // DELETE: 대기열 삭제
 export async function DELETE(request: NextRequest) {
   try {
+    if (!(await isAdminAuthorized(request))) {
+      return unauthorized();
+    }
+
     const { searchParams } = new URL(request.url);
     const token = searchParams.get("token");
 
@@ -157,6 +216,10 @@ function generateToken(): string {
 // 관리자용: 모든 대기열 조회
 export async function PATCH(request: NextRequest) {
   try {
+    if (!(await isAdminAuthorized(request))) {
+      return unauthorized();
+    }
+
     const { searchParams } = new URL(request.url);
     const action = searchParams.get("action");
 

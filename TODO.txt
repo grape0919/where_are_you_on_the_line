@@ -1,4 +1,6 @@
 - [ ] CSV 업로드 템플릿 샘플 제공 및 다운로드 기능 추가
 - [ ] 평균 대기시간 산출 시 표준편차/최대값 등 추가 통계 노출
 - [ ] 관리자 UI에서 통계 전략(평균/최대 등) 선택 옵션 제공
+- [ ] Admin 대시보드 내 unused 코드/경고 정리(complete/viewQueue 등)
+- [ ] Queue/Reservation 관련 ESLint warning 정리(선택)
 

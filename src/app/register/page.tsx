@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import * as QRCode from "qrcode";
+import Image from "next/image";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { ClipboardList, User2, Clock, CheckCircle, Copy, ExternalLink } from "lucide-react";
+import { ClipboardList, Clock, CheckCircle, Copy, ExternalLink } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useCreateQueue } from "@/lib/useQueue";
 import { getActiveDoctors, getActiveServices } from "@/lib/storage";
@@ -41,6 +43,7 @@ export default function RegisterPage() {
     service: string;
     estimatedWaitTime: number;
   } | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
   const createQueueMutation = useCreateQueue();
 
@@ -65,6 +68,21 @@ export default function RegisterPage() {
     fetchServices();
     fetchDoctors();
   }, []);
+
+  useEffect(() => {
+    if (!successData) {
+      setQrDataUrl(null);
+      return;
+    }
+
+    const fullUrl = `${window.location.origin}${successData.queueUrl}`;
+    QRCode.toDataURL(fullUrl, { width: 256, margin: 2 })
+      .then((url) => setQrDataUrl(url))
+      .catch((error) => {
+        console.error("QR 생성 실패:", error);
+        setQrDataUrl(null);
+      });
+  }, [successData]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,6 +139,44 @@ export default function RegisterPage() {
   const handleOpenQueue = () => {
     if (!successData) return;
     window.open(successData.queueUrl, "_blank");
+  };
+
+  const handleCopyQrImage = async () => {
+    if (!successData) return;
+    if (!qrDataUrl) {
+      alert("QR 이미지를 생성 중입니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+
+    try {
+      const blob = await fetch(qrDataUrl).then((r) => r.blob());
+      const ClipboardItemCtor = (window as unknown as { ClipboardItem?: typeof ClipboardItem })
+        .ClipboardItem;
+
+      if (!navigator.clipboard?.write || !ClipboardItemCtor) {
+        throw new Error("Clipboard image write not supported");
+      }
+
+      await navigator.clipboard.write([new ClipboardItemCtor({ [blob.type]: blob })]);
+      alert("QR 이미지가 복사되었습니다!");
+    } catch (error) {
+      console.error("QR 이미지 복사 실패:", error);
+      await handleCopyUrl();
+    }
+  };
+
+  const handleDownloadQrImage = () => {
+    if (!successData) return;
+    if (!qrDataUrl) {
+      alert("QR 이미지를 생성 중입니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+    const a = document.createElement("a");
+    a.href = qrDataUrl;
+    a.download = `queue-qr-${successData.token}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   };
 
   const selectedService = serviceOptions.find((option) => option.value === formData.service);
@@ -285,6 +341,50 @@ export default function RegisterPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground text-sm">대기번호</span>
                   <span className="font-mono font-medium">{successData.token}</span>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-3">
+                <p className="text-muted-foreground text-sm">QR로 대기열 페이지에 접속할 수 있습니다.</p>
+                <div className="flex justify-center">
+                  <div className="rounded-xl border bg-white p-3">
+                    {qrDataUrl ? (
+                      <Image
+                        src={qrDataUrl}
+                        alt="대기열 접속 QR 코드"
+                        className="h-56 w-56"
+                        width={224}
+                        height={224}
+                        unoptimized
+                      />
+                    ) : (
+                      <div className="flex h-56 w-56 items-center justify-center text-sm text-muted-foreground">
+                        QR 생성 중...
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleCopyQrImage}
+                    className="flex-1"
+                    disabled={!qrDataUrl}
+                  >
+                    이미지 복사
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleDownloadQrImage}
+                    className="flex-1"
+                    disabled={!qrDataUrl}
+                  >
+                    다운로드
+                  </Button>
                 </div>
               </div>
 

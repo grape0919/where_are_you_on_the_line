@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Bell, Smartphone, RefreshCw, Info, ClipboardList } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { useQueue, type QueueState } from "@/lib/useQueue";
+import { useQueue, useServiceWaitTimes } from "@/lib/useQueue";
 
 // 타입 정의
 type QueueStatus = {
@@ -38,6 +38,7 @@ export default function QueuePage() {
   // Hooks
   const prefersReducedMotion = useReducedMotion();
   const { data: queueData, isLoading, error, refetch } = useQueue(token);
+  const { data: serviceWaitTimes, refetch: refetchServiceWaitTimes } = useServiceWaitTimes();
 
   // Effects
   useEffect(() => {
@@ -52,6 +53,20 @@ export default function QueuePage() {
       setLastUpdated(Date.now());
     }
   }, [queueData]);
+
+  useEffect(() => {
+    if (serviceWaitTimes) {
+      setLastUpdated(Date.now());
+    }
+  }, [serviceWaitTimes]);
+
+  const formatMinutes = (minutes: number): string => {
+    if (minutes <= 0) return "0분";
+    if (minutes < 60) return `${minutes}분`;
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return mins === 0 ? `${hours}시간` : `${hours}시간 ${mins}분`;
+  };
 
   // Computed values
   const progress = useMemo((): number => {
@@ -84,11 +99,7 @@ export default function QueuePage() {
 
     const { eta } = queueData;
     if (eta <= 0) return "곧 입장";
-    if (eta < 60) return `${eta}분`;
-
-    const hours = Math.floor(eta / 60);
-    const minutes = eta % 60;
-    return `${hours}시간 ${minutes}분`;
+    return formatMinutes(eta);
   }, [queueData]);
 
   const fadeAnim = useMemo((): AnimationConfig => {
@@ -111,7 +122,7 @@ export default function QueuePage() {
   const handleRefresh = async (): Promise<void> => {
     setRefreshing(true);
     try {
-      await refetch();
+      await Promise.all([refetch(), refetchServiceWaitTimes()]);
       setLastUpdated(Date.now());
     } catch (error) {
       console.error("Failed to refresh queue data:", error);
@@ -131,7 +142,7 @@ export default function QueuePage() {
   // Early returns for different states
   if (!isClient) {
     return (
-      <div className="flex min-h-[100dvh] w-full items-center justify-center bg-background px-4 py-6">
+      <div className="bg-background flex min-h-[100dvh] w-full items-center justify-center px-4 py-6">
         <div className="text-center">
           <RefreshCw className="mx-auto mb-4 h-8 w-8 animate-spin" />
           <p>페이지를 불러오는 중...</p>
@@ -142,7 +153,7 @@ export default function QueuePage() {
 
   if (!token) {
     return (
-      <div className="flex min-h-[100dvh] w-full items-center justify-center bg-background px-4 py-6">
+      <div className="bg-background flex min-h-[100dvh] w-full items-center justify-center px-4 py-6">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle className="text-center text-red-600">접근 오류</CardTitle>
@@ -160,7 +171,7 @@ export default function QueuePage() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-[100dvh] w-full items-center justify-center bg-background px-4 py-6">
+      <div className="bg-background flex min-h-[100dvh] w-full items-center justify-center px-4 py-6">
         <div className="text-center">
           <RefreshCw className="mx-auto mb-4 h-8 w-8 animate-spin" />
           <p>대기열 정보를 불러오는 중...</p>
@@ -193,10 +204,10 @@ export default function QueuePage() {
   }
 
   // Destructure queue data after all checks
-  const { eta, name, age, service, room, doctor, estimatedWaitTime } = queueData;
+  const { eta, name, age, service, room, doctor } = queueData;
 
   return (
-    <div className="flex min-h-[100dvh] w-full items-start justify-center bg-background px-4 py-6 sm:px-6 sm:py-8">
+    <div className="bg-background flex min-h-[100dvh] w-full items-start justify-center px-4 py-6 sm:px-6 sm:py-8">
       <div className="w-full max-w-md space-y-4">
         <header className="flex items-center justify-between">
           <div className="min-w-0 space-y-0.5">
@@ -400,6 +411,35 @@ export default function QueuePage() {
                 )}
               </TabsContent>
             </Tabs>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">진료항목별 남은 대기시간</CardTitle>
+            <CardDescription>대기 중인 환자 기준으로 집계됩니다.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {!serviceWaitTimes ? (
+              <div className="text-muted-foreground text-sm">불러오는 중...</div>
+            ) : (
+              <div className="space-y-2">
+                {serviceWaitTimes.services.map((s) => (
+                  <div
+                    key={s.service}
+                    className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{s.service}</div>
+                      <div className="text-muted-foreground text-xs">대기 {s.waitingCount}명</div>
+                    </div>
+                    <div className="text-sm font-semibold">
+                      {formatMinutes(s.remainingTotalMinutes)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
