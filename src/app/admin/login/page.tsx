@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ThemeToggle } from "@/components/ThemeToggle";
 
 function sanitizeNext(nextValue: string | null): string {
   if (!nextValue) return "/admin";
@@ -62,7 +61,6 @@ export default function AdminLoginPage() {
         <CardHeader className="space-y-2">
           <div className="flex items-center justify-between">
             <CardTitle>관리자 로그인</CardTitle>
-            <ThemeToggle inline />
           </div>
           <CardDescription>관리자 비밀번호를 입력해 주세요.</CardDescription>
         </CardHeader>

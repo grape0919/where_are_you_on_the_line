@@ -15,7 +15,7 @@
 
 - Source lives in `src/`.
   - `src/app/` — Next.js App Router routes, layouts, and API handlers (e.g., `page.tsx`, `register/page.tsx`, `admin/*`, `api/queue/route.ts`).
-  - `src/components/` — shared presentation logic (`ui/*`, charts, and utilities like `ThemeToggle.tsx`).
+  - `src/components/` — shared presentation logic (`ui/*`, charts, and other shared components).
   - `src/lib/` — hooks and utilities (`useQueue.ts`, `useReservation.ts`, helpers).
   - `src/types/` — shared TypeScript types.
   - `public/` — static assets.

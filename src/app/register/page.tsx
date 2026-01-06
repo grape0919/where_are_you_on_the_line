@@ -17,7 +17,6 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { ClipboardList, Clock, CheckCircle, Copy, ExternalLink } from "lucide-react";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { useCreateQueue } from "@/lib/useQueue";
 import { getActiveDoctors, getActiveServices } from "@/lib/storage";
 import { getRegisterPrefill } from "@/lib/devDefaults";
@@ -189,7 +188,6 @@ export default function RegisterPage() {
             <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">환자 접수</h1>
             <p className="text-muted-foreground mt-2">환자 정보를 입력하여 대기열에 등록하세요</p>
           </div>
-          <ThemeToggle inline />
         </header>
 
         {!successData ? (

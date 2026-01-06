@@ -2,7 +2,6 @@
 
 // import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,9 +43,6 @@ export default function HomePage() {
           <div className="text-center w-full">
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">올바른정형외과</h1>
             <p className="text-muted-foreground mt-2 text-lg">대기열 관리 시스템</p>
-          </div>
-          <div className="absolute right-4 top-4 sm:right-6 sm:top-6">
-            <ThemeToggle inline />
           </div>
         </header>
 

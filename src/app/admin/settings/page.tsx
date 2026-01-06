@@ -6,11 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { Settings, Bell, Database, Palette } from "lucide-react";
-import { useThemePreset } from "@/app/providers";
+import { Settings, Bell, Database } from "lucide-react";
 
 export default function SettingsPage() {
-  const { theme, setTheme } = useThemePreset();
   return (
     <div className="space-y-6 p-6">
       {/* 시스템 설정 */}
@@ -128,29 +126,6 @@ export default function SettingsPage() {
       </Card>
 
       <Separator />
-
-      {/* 테마 설정 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Palette className="h-5 w-5" />
-            테마 설정
-          </CardTitle>
-          <CardDescription>시스템의 외관을 사용자 정의합니다.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>다크 모드</Label>
-              <p className="text-muted-foreground text-sm">어두운 테마를 사용합니다.</p>
-            </div>
-            <Switch
-              checked={theme === "dark"}
-              onCheckedChange={(v) => setTheme(v ? "dark" : "light")}
-            />
-          </div>
-        </CardContent>
-      </Card>
 
       {/* 저장 버튼 */}
       <div className="flex justify-end">

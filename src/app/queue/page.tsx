@@ -10,7 +10,6 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Bell, Smartphone, RefreshCw, Info, ClipboardList } from "lucide-react";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useQueue, useServiceWaitTimes } from "@/lib/useQueue";
 
@@ -230,7 +229,6 @@ export default function QueuePage() {
               </p>
             )}
           </div>
-          <ThemeToggle inline />
           <Button
             variant="ghost"
             size="icon"

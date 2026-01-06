@@ -16,7 +16,6 @@ import {
   Calendar,
   SlidersHorizontal,
 } from "lucide-react";
-import { ThemeToggle } from "@/components/ThemeToggle";
 
 const sidebarItems = [
   {
@@ -141,7 +140,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <h1 className="text-lg font-semibold">관리자 대시보드</h1>
           </div>
           <div className="flex items-center space-x-4">
-            <ThemeToggle inline />
             <Link href="/">
               <Button variant="outline" size="sm">
                 메인으로

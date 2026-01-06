@@ -15,7 +15,6 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Calendar as CalendarIcon, CheckCircle, AlertCircle, Copy, Share2 } from "lucide-react";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   buildReservationMessage,
   calculateSlotUsage,
@@ -263,7 +262,6 @@ export default function ReservationPage() {
             <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">예약 등록</h1>
             <p className="text-muted-foreground mt-2">기존 환자의 진료 예약을 등록하세요</p>
           </div>
-          <ThemeToggle inline />
         </header>
 
         {!successData ? (
