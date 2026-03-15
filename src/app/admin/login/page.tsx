@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,12 +14,12 @@ function sanitizeNext(nextValue: string | null): string {
 }
 
 export default function AdminLoginPage() {
-  const router = useRouter();
   const [nextPath, setNextPath] = useState("/admin");
   const [error, setError] = useState<string | null>(null);
 
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -46,7 +45,9 @@ export default function AdminLoginPage() {
         return;
       }
 
-      router.replace(nextPath);
+      setRedirecting(true);
+      window.location.assign(nextPath);
+      return;
     } catch (e) {
       console.error("Admin login failed:", e);
       setMessage("로그인 중 오류가 발생했습니다.");
@@ -94,8 +95,8 @@ export default function AdminLoginPage() {
                 required
               />
             </div>
-            <Button type="submit" className="w-full" disabled={submitting}>
-              {submitting ? "로그인 중..." : "로그인"}
+            <Button type="submit" className="w-full" disabled={submitting || redirecting}>
+              {redirecting ? "이동 중..." : submitting ? "로그인 중..." : "로그인"}
             </Button>
           </form>
         </CardContent>

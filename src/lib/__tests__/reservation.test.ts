@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   assertReservationCapacity,
   buildReservationMessage,
@@ -69,12 +69,14 @@ describe("reservation capacity guard", () => {
     createdAt: Date.now(),
   };
 
-  const limits = (overrides: Partial<{
-    perSlot: number;
-    perDay: number;
-    perSlotScope: "global" | "service";
-    perDayScope: "global" | "service";
-  }> = {}) => ({
+  const limits = (
+    overrides: Partial<{
+      perSlot: number;
+      perDay: number;
+      perSlotScope: "global" | "service";
+      perDayScope: "global" | "service";
+    }> = {}
+  ) => ({
     perSlot: overrides.perSlot ?? 4,
     perDay: overrides.perDay ?? 40,
     perSlotScope: overrides.perSlotScope ?? "global",
@@ -89,9 +91,15 @@ describe("reservation capacity guard", () => {
 
   it("throws slot limit error when time slot is full", () => {
     expect(() =>
-      assertReservationCapacity("2025-01-10", "09:00", "일반진료", [sampleReservation], limits({
-        perSlot: 1,
-      }))
+      assertReservationCapacity(
+        "2025-01-10",
+        "09:00",
+        "일반진료",
+        [sampleReservation],
+        limits({
+          perSlot: 1,
+        })
+      )
     ).toThrowError(ReservationLimitError);
   });
 
@@ -102,9 +110,15 @@ describe("reservation capacity guard", () => {
     ];
 
     expect(() =>
-      assertReservationCapacity("2025-01-10", "10:00", "일반진료", reservations, limits({
-        perDay: 2,
-      }))
+      assertReservationCapacity(
+        "2025-01-10",
+        "10:00",
+        "일반진료",
+        reservations,
+        limits({
+          perDay: 2,
+        })
+      )
     ).toThrowError(ReservationLimitError);
   });
 

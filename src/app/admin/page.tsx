@@ -105,6 +105,11 @@ export default function AdminDashboard() {
         method: "PATCH",
       });
 
+      if (response.status === 401) {
+        window.location.assign("/admin/login?next=/admin");
+        return;
+      }
+
       if (!response.ok) throw new Error("Failed to fetch queues");
 
       const data = await response.json();
