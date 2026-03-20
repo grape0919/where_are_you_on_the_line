@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git PR Merge"
+  short_description: "Commit, push, open a PR, and merge safely."
+  default_prompt: "Use $git-pr-merge to commit the current work, push it, open a GitHub PR, and merge it safely."
