@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -32,21 +33,6 @@ const sidebarItems = [
     title: "의료진 관리",
     href: "/admin/doctors",
     icon: Contact,
-  },
-  {
-    title: "환자 관리",
-    href: "/admin/patients",
-    icon: Users,
-  },
-  {
-    title: "예약 관리",
-    href: "/admin/reservations",
-    icon: Calendar,
-  },
-  {
-    title: "정원 설정",
-    href: "/admin/reservations/capacity",
-    icon: SlidersHorizontal,
   },
   {
     title: "설정",
@@ -81,8 +67,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {/* Sidebar Header */}
           <div className="border-sidebar-border flex h-16 items-center justify-between border-b px-6">
             <Link href="/admin" className="flex items-center space-x-2">
-              <Stethoscope className="text-sidebar-primary h-6 w-6" />
-              <span className="text-sidebar-foreground text-lg font-semibold">AllRight Queue</span>
+              <Image src="/logo.png" alt="올바른정형외과" width={160} height={22} />
             </Link>
             <Button
               variant="ghost"
@@ -119,7 +104,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
           {/* Sidebar Footer */}
           <div className="border-sidebar-border border-t p-4">
-            <div className="text-sidebar-foreground/60 text-xs">관리자 패널 v1.0</div>
+            <div className="text-sidebar-foreground/60 text-xs">
+              <a
+                href="https://redbridgedev.ai.kr"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-sidebar-foreground/80 transition-colors"
+              >
+                developed by Red Bridge Dev
+              </a>
+            </div>
           </div>
         </div>
       </div>

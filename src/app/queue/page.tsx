@@ -1,63 +1,45 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Bell, Smartphone, RefreshCw, Info, ClipboardList } from "lucide-react";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { useQueue, useServiceWaitTimes } from "@/lib/useQueue";
+import { Bell, RefreshCw, ClipboardList, XCircle, CheckCircle, Stethoscope, Users } from "lucide-react";
+import { useQueue } from "@/lib/useQueue";
 
-// 타입 정의
-type QueueStatus = {
+type StatusDisplay = {
   label: string;
   tone: "default" | "warning" | "success";
 };
 
-type AnimationConfig = {
-  initial: { opacity: number; y: number };
-  animate: { opacity: number; y: number };
-  exit: { opacity: number; y: number };
-};
-
 export default function QueuePage() {
-  // State declarations
-  const [notify, setNotify] = useState<"off" | "ready" | "sent">("off");
-  const [phone, setPhone] = useState("");
   const [token, setToken] = useState<string>("");
   const [isClient, setIsClient] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
 
-  // Hooks
-  const prefersReducedMotion = useReducedMotion();
-  const { data: queueData, isLoading, error, refetch } = useQueue(token);
-  const { data: serviceWaitTimes, refetch: refetchServiceWaitTimes } = useServiceWaitTimes();
+  // 상태별 동적 폴링
+  const dynamicPolling = (query: { state: { data?: { status?: string } } }): number | false => {
+    const status = query.state.data?.status;
+    if (status === "confirmed") return 30_000;
+    if (status === "in_progress") return 60_000;
+    return false; // completed/cancelled
+  };
 
-  // Effects
+  const { data: queueData, isLoading, error, refetch } = useQueue(token, dynamicPolling);
+
   useEffect(() => {
     setIsClient(true);
     const sp = new URLSearchParams(window.location.search);
-    const extractedToken = sp.get("token") || "";
-    setToken(extractedToken);
+    setToken(sp.get("token") || "");
   }, []);
 
   useEffect(() => {
-    if (queueData) {
-      setLastUpdated(Date.now());
-    }
+    if (queueData) setLastUpdated(Date.now());
   }, [queueData]);
-
-  useEffect(() => {
-    if (serviceWaitTimes) {
-      setLastUpdated(Date.now());
-    }
-  }, [serviceWaitTimes]);
 
   const formatMinutes = (minutes: number): string => {
     if (minutes <= 0) return "0분";
@@ -67,85 +49,40 @@ export default function QueuePage() {
     return mins === 0 ? `${hours}시간` : `${hours}시간 ${mins}분`;
   };
 
-  // Computed values
-  const progress = useMemo((): number => {
-    if (!queueData) return 0;
-
-    const { estimatedWaitTime, eta } = queueData;
-    if (estimatedWaitTime <= 0) return 0;
-
-    const done = Math.max(estimatedWaitTime - eta, 0);
-    return Math.min(Math.round((done / estimatedWaitTime) * 100), 100);
+  const statusDisplay = useMemo((): StatusDisplay => {
+    if (!queueData) return { label: "대기 중", tone: "default" };
+    switch (queueData.status) {
+      case "confirmed": {
+        if (queueData.patientsAhead === 0) return { label: "다음 순서입니다", tone: "warning" };
+        if (queueData.eta <= 5) return { label: "곧 순서입니다", tone: "warning" };
+        return { label: "대기 중", tone: "default" };
+      }
+      case "in_progress":
+        return { label: "진료중", tone: "success" };
+      case "completed":
+        return { label: "진료완료", tone: "success" };
+      case "cancelled":
+        return { label: "취소됨", tone: "default" };
+      default:
+        return { label: "대기 중", tone: "default" };
+    }
   }, [queueData]);
 
-  const status = useMemo((): QueueStatus => {
-    if (!queueData) {
-      return { label: "대기 중", tone: "default" };
-    }
-
-    const { eta } = queueData;
-    if (eta <= 0) {
-      return { label: "곧 호출됩니다", tone: "success" };
-    }
-    if (eta <= 5) {
-      return { label: "잠시만 기다려 주세요", tone: "warning" };
-    }
-    return { label: "대기 중", tone: "default" };
-  }, [queueData]);
-
-  const formattedEta = useMemo((): string => {
-    if (!queueData) return "";
-
-    const { eta } = queueData;
-    if (eta <= 0) return "곧 입장";
-    return formatMinutes(eta);
-  }, [queueData]);
-
-  const fadeAnim = useMemo((): AnimationConfig => {
-    if (prefersReducedMotion) {
-      return {
-        initial: { opacity: 1, y: 0 },
-        animate: { opacity: 1, y: 0 },
-        exit: { opacity: 1, y: 0 },
-      };
-    }
-
-    return {
-      initial: { opacity: 0, y: 8 },
-      animate: { opacity: 1, y: 0 },
-      exit: { opacity: 0, y: -8 },
-    };
-  }, [prefersReducedMotion]);
-
-  // Event handlers
-  const handleRefresh = async (): Promise<void> => {
+  const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([refetch(), refetchServiceWaitTimes()]);
+      await refetch();
       setLastUpdated(Date.now());
-    } catch (error) {
-      console.error("Failed to refresh queue data:", error);
     } finally {
       setRefreshing(false);
     }
   };
 
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
-    setPhone(e.target.value.replace(/[^0-9]/g, ""));
-  };
-
-  const handleNotifyChange = (newState: "off" | "ready" | "sent"): void => {
-    setNotify(newState);
-  };
-
-  // Early returns for different states
+  // Early returns
   if (!isClient) {
     return (
       <div className="bg-background flex min-h-[100dvh] w-full items-center justify-center px-4 py-6">
-        <div className="text-center">
-          <RefreshCw className="mx-auto mb-4 h-8 w-8 animate-spin" />
-          <p>페이지를 불러오는 중...</p>
-        </div>
+        <RefreshCw className="h-8 w-8 animate-spin" />
       </div>
     );
   }
@@ -156,13 +93,8 @@ export default function QueuePage() {
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle className="text-center text-red-600">접근 오류</CardTitle>
-            <CardDescription className="text-center">
-              유효하지 않은 대기열 링크입니다.
-            </CardDescription>
+            <CardDescription className="text-center">유효하지 않은 링크입니다.</CardDescription>
           </CardHeader>
-          <CardContent className="text-center">
-            <p className="text-muted-foreground text-sm">접수 시 발급받은 링크를 확인해주세요.</p>
-          </CardContent>
         </Card>
       </div>
     );
@@ -181,268 +113,197 @@ export default function QueuePage() {
 
   if (error || !queueData) {
     return (
-      <div className="flex min-h-[100dvh] w-full items-center justify-center bg-gradient-to-b from-white to-slate-50 px-4 py-6">
+      <div className="bg-background flex min-h-[100dvh] w-full items-center justify-center px-4 py-6">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle className="text-center text-red-600">대기열을 찾을 수 없습니다</CardTitle>
-            <CardDescription className="text-center">
-              대기열 정보를 불러올 수 없습니다.
-            </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4 text-center">
-            <p className="text-muted-foreground text-sm">
-              대기열이 만료되었거나 잘못된 링크일 수 있습니다.
-            </p>
-            <Button onClick={handleRefresh} variant="outline">
-              다시 시도
-            </Button>
+          <CardContent className="text-center">
+            <p className="text-muted-foreground mb-4 text-sm">링크가 만료되었거나 잘못된 링크입니다.</p>
+            <Button onClick={handleRefresh} variant="outline">다시 시도</Button>
           </CardContent>
         </Card>
       </div>
     );
   }
 
-  // Destructure queue data after all checks
-  const { eta, name, age, service, room, doctor } = queueData;
+  const { name, treatmentItems, doctor, status } = queueData;
 
   return (
     <div className="bg-background flex min-h-[100dvh] w-full items-start justify-center px-4 py-6 sm:px-6 sm:py-8">
       <div className="w-full max-w-md space-y-4">
+        {/* 헤더 */}
         <header className="flex items-center justify-between">
           <div className="min-w-0 space-y-0.5">
-            <h1
-              className="truncate text-xl font-semibold tracking-tight sm:text-2xl"
-              title="올바른정형외과 대기 현황"
-            >
-              올바른정형외과 대기 현황
-            </h1>
-            <p
-              className="text-muted-foreground truncate text-sm"
-              title="접수 후 발송된 고유 링크에서 실시간 현황을 확인하세요."
-            >
-              접수 후 발송된 고유 링크에서 실시간 현황을 확인하세요.
-            </p>
-
+            <Image src="/logo.png" alt="올바른정형외과" width={160} height={22} className="mb-1" />
+            <h1 className="text-xl font-semibold tracking-tight">대기 현황</h1>
             {lastUpdated && (
               <p className="text-muted-foreground text-xs">
-                마지막 업데이트: {new Date(lastUpdated).toLocaleTimeString()}
+                업데이트: {new Date(lastUpdated).toLocaleTimeString()}
               </p>
             )}
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleRefresh}
-            aria-label="새로고침"
-            disabled={refreshing}
-          >
+          <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={refreshing}>
             <RefreshCw className={`h-5 w-5 ${refreshing ? "animate-spin" : ""}`} />
           </Button>
         </header>
 
-        <Card className="rounded-2xl shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <ClipboardList className="h-5 w-5" /> 대기표
-            </CardTitle>
-            <CardDescription>아래의 정보로 안내해 드립니다</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex min-w-0 items-end justify-between">
-              <div className="min-w-0">
-                <div className="text-muted-foreground text-sm">이름</div>
-                <div
-                  className="truncate text-2xl font-bold tracking-tight sm:text-3xl"
-                  title={name}
-                >
-                  {name}
-                </div>
-              </div>
-
-              <div className="min-w-0">
-                <div className="text-muted-foreground text-sm">나이</div>
-                <div className="truncate text-2xl font-bold tracking-tight sm:text-3xl">
-                  <span className="text-xl">(만) </span>
-                  {age} 세
-                </div>
-              </div>
-              <Badge
-                className="rounded-xl px-3 py-1.5 text-base sm:text-lg"
-                variant={status.tone === "success" ? "default" : undefined}
-              >
-                {status.label}
-              </Badge>
-            </div>
-
-            <Separator />
-
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <div className="min-w-0 rounded-xl bg-slate-50 p-3">
-                <div className="text-muted-foreground text-xs">진료실</div>
-                <div className="flex h-16 flex-col items-center justify-center sm:h-20">
-                  <div
-                    className="truncate text-[clamp(1.75rem,7vw,2.25rem)] leading-none font-extrabold tracking-tight"
-                    aria-live="polite"
-                    title={room || "—"}
-                  >
-                    {room || "—"}
+        {/* confirmed: 대기 중 */}
+        {status === "confirmed" && (
+          <>
+            <Card className="rounded-2xl shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <ClipboardList className="h-5 w-5" /> 대기표
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-end justify-between">
+                  <div>
+                    <div className="text-muted-foreground text-sm">이름</div>
+                    <div className="text-2xl font-bold">{name}</div>
                   </div>
-                  <div
-                    className="text-muted-foreground mt-1 truncate text-xs sm:text-sm"
-                    title={doctor || "—"}
+                  <Badge
+                    className="rounded-xl px-3 py-1.5 text-base"
+                    variant={statusDisplay.tone === "warning" ? "default" : "secondary"}
                   >
-                    {doctor || "—"}
+                    {statusDisplay.label}
+                  </Badge>
+                </div>
+
+                <Separator />
+
+                {/* 핵심 정보 3가지 */}
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="rounded-xl bg-primary/5 p-4">
+                    <div className="text-muted-foreground text-xs">내 순서</div>
+                    <div className="mt-1 text-3xl font-extrabold text-primary">
+                      {queueData.queuePosition}
+                    </div>
+                    <div className="text-muted-foreground text-xs">번째</div>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-4">
+                    <div className="text-muted-foreground text-xs">앞에</div>
+                    <div className="mt-1 text-3xl font-extrabold">
+                      {queueData.patientsAhead}
+                    </div>
+                    <div className="text-muted-foreground text-xs">명 대기</div>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-4">
+                    <div className="text-muted-foreground text-xs">예상 대기</div>
+                    <div className="mt-1 text-2xl font-bold">
+                      {formatMinutes(queueData.eta)}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="min-w-0 rounded-xl bg-slate-50 p-3">
-                <div className="text-muted-foreground text-xs">예상 대기</div>
-                <div className="flex h-16 items-center justify-center sm:h-20">
-                  <div
-                    className="truncate text-[clamp(1.125rem,4.5vw,1.75rem)] font-semibold"
-                    title={formattedEta}
-                  >
-                    {formattedEta}
-                  </div>
-                </div>
-              </div>
-
-              <div className="min-w-0 rounded-xl bg-slate-50 p-3">
-                <div className="text-muted-foreground text-xs">진료 항목</div>
-                <div className="flex h-16 items-center justify-center sm:h-20">
-                  <div
-                    className="truncate text-[clamp(1.125rem,4.5vw,1.75rem)] font-semibold"
-                    title={service}
-                  >
-                    {service}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <div className="mb-2 flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">진행률</span>
-                <span className="font-medium">{progress}%</span>
-              </div>
-              <Progress value={progress} className="h-2" />
-            </div>
-
-            <AnimatePresence initial={false}>
-              {eta > 0 && eta <= 5 && (
-                <motion.div {...fadeAnim}>
+                {/* 임박 알림 */}
+                {queueData.patientsAhead <= 1 && queueData.patientsAhead > 0 && (
                   <Alert>
                     <Bell className="h-4 w-4" />
-                    <AlertTitle>곧 호출 예정</AlertTitle>
-                    <AlertDescription>
-                      잠시 자리를 비우셨다면 안내데스크에 미리 알려주세요.
-                    </AlertDescription>
+                    <AlertTitle>곧 순서입니다</AlertTitle>
+                    <AlertDescription>잠시 후 호출됩니다. 진료실 근처에서 대기해주세요.</AlertDescription>
                   </Alert>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                )}
+                {queueData.patientsAhead === 0 && (
+                  <Alert className="border-primary bg-primary/5">
+                    <Bell className="h-4 w-4 text-primary" />
+                    <AlertTitle className="text-primary">다음 순서입니다</AlertTitle>
+                    <AlertDescription>진료실로 이동해주세요.</AlertDescription>
+                  </Alert>
+                )}
 
-            <Tabs defaultValue="info" className="w-full">
-              <TabsList className="grid w-full grid-cols-2 rounded-xl">
-                <TabsTrigger value="info">안내</TabsTrigger>
-                <TabsTrigger value="notice">알림 설정</TabsTrigger>
-              </TabsList>
-              <TabsContent value="info" className="space-y-3 pt-3">
+                <Separator />
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">진료항목</span>
+                    <div className="flex gap-1">
+                      {treatmentItems.map((item) => (
+                        <Badge key={item} variant="secondary" className="text-xs">{item}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                  {doctor && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">담당의</span>
+                      <span className="font-medium">{doctor}</span>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl shadow-sm">
+              <CardContent className="pt-6">
                 <div className="text-muted-foreground flex items-start gap-2 text-sm">
-                  <Info className="mt-0.5 h-4 w-4" />
+                  <Users className="mt-0.5 h-4 w-4 shrink-0" />
                   <ul className="list-disc space-y-1 pl-4">
                     <li>예상 대기시간은 진료 상황에 따라 달라질 수 있습니다.</li>
                     <li>호출 시 부재 중이면 순번이 뒤로 밀릴 수 있습니다.</li>
-                    <li>문의: 안내데스크 (내선 0)</li>
+                    <li>문의: 안내데스크</li>
                   </ul>
                 </div>
-              </TabsContent>
-              <TabsContent value="notice" className="space-y-3 pt-3">
-                {notify === "off" && (
-                  <div className="space-y-3">
-                    <div className="text-muted-foreground text-sm">
-                      문자 알림을 원하시면 연락처를 확인해 주세요.
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        inputMode="tel"
-                        placeholder="휴대폰 번호 (숫자만)"
-                        value={phone}
-                        onChange={handlePhoneChange}
-                        className="rounded-xl"
-                        aria-label="휴대폰 번호"
-                      />
-                      <Button className="rounded-xl" onClick={() => handleNotifyChange("ready")}>
-                        확인
-                      </Button>
-                    </div>
-                  </div>
-                )}
+              </CardContent>
+            </Card>
+          </>
+        )}
 
-                {notify === "ready" && (
-                  <div className="space-y-3">
-                    <div className="text-sm">입력된 번호로 진료 전 안내를 보내드릴까요?</div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="secondary"
-                        className="rounded-xl"
-                        onClick={() => handleNotifyChange("off")}
-                      >
-                        수정
-                      </Button>
-                      <Button className="rounded-xl" onClick={() => handleNotifyChange("sent")}>
-                        알림 받기
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {notify === "sent" && (
-                  <Alert>
-                    <Smartphone className="h-4 w-4" />
-                    <AlertTitle>알림이 설정되었습니다</AlertTitle>
-                    <AlertDescription>
-                      호출 1~2팀 전에 문자로 알려드립니다. {phone ? `(${phone})` : "등록된 번호"}
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">진료항목별 남은 대기시간</CardTitle>
-            <CardDescription>대기 중인 환자 기준으로 집계됩니다.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {!serviceWaitTimes ? (
-              <div className="text-muted-foreground text-sm">불러오는 중...</div>
-            ) : (
-              <div className="space-y-2">
-                {serviceWaitTimes.services.map((s) => (
-                  <div
-                    key={s.service}
-                    className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">{s.service}</div>
-                      <div className="text-muted-foreground text-xs">대기 {s.waitingCount}명</div>
-                    </div>
-                    <div className="text-sm font-semibold">
-                      {formatMinutes(s.remainingTotalMinutes)}
-                    </div>
-                  </div>
-                ))}
+        {/* in_progress: 진료중 */}
+        {status === "in_progress" && (
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="py-12">
+              <div className="flex flex-col items-center justify-center text-center">
+                <Stethoscope className="mb-4 h-14 w-14 text-orange-500" />
+                <p className="text-xl font-bold">진료가 진행 중입니다</p>
+                <p className="text-muted-foreground mt-2 text-sm">{name}님</p>
+                <div className="mt-4 flex gap-1">
+                  {treatmentItems.map((item) => (
+                    <Badge key={item} variant="secondary">{item}</Badge>
+                  ))}
+                </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
-        <footer className="text-muted-foreground pt-2 text-center text-xs">
-          © {new Date().getFullYear()} 올바른정형외과 · 대기열 시스템
+        {/* completed: 진료완료 */}
+        {status === "completed" && (
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="py-12">
+              <div className="flex flex-col items-center justify-center text-center">
+                <CheckCircle className="mb-4 h-14 w-14 text-green-500" />
+                <p className="text-xl font-bold">진료가 완료되었습니다</p>
+                <p className="text-muted-foreground mt-2 text-sm">이용해 주셔서 감사합니다</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* cancelled */}
+        {status === "cancelled" && (
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="py-12">
+              <div className="flex flex-col items-center justify-center text-center">
+                <XCircle className="mb-4 h-14 w-14 text-gray-400" />
+                <p className="text-xl font-bold">접수가 취소되었습니다</p>
+                {queueData.cancelReason && (
+                  <p className="text-muted-foreground mt-2 text-sm">사유: {queueData.cancelReason}</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <footer className="text-muted-foreground pt-4 text-center text-[10px]">
+          <a
+            href="https://redbridgedev.ai.kr"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-foreground/60 transition-colors"
+          >
+            developed by Red Bridge Dev
+          </a>
         </footer>
       </div>
     </div>

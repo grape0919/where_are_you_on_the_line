@@ -21,7 +21,48 @@ function timingSafeEqualString(a: string, b: string): boolean {
   return diff === 0;
 }
 
+// Rate limit: IP당 15분간 최대 5회 시도
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+
+function getClientIp(request: NextRequest): string {
+  return (
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip") ||
+    "unknown"
+  );
+}
+
+function checkRateLimit(ip: string): { allowed: boolean; retryAfterSeconds?: number } {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+
+  if (!entry || now > entry.resetAt) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    return { allowed: true };
+  }
+
+  if (entry.count >= LOGIN_MAX_ATTEMPTS) {
+    return { allowed: false, retryAfterSeconds: Math.ceil((entry.resetAt - now) / 1000) };
+  }
+
+  entry.count++;
+  return { allowed: true };
+}
+
 export async function POST(request: NextRequest) {
+  const ip = getClientIp(request);
+  const rateCheck = checkRateLimit(ip);
+  if (!rateCheck.allowed) {
+    const res = jsonError(
+      `로그인 시도 횟수를 초과했습니다. ${rateCheck.retryAfterSeconds}초 후 다시 시도해주세요.`,
+      429
+    );
+    res.headers.set("Retry-After", String(rateCheck.retryAfterSeconds));
+    return res;
+  }
+
   const secret = process.env.ADMIN_SECRET;
   if (!secret) {
     return jsonError("ADMIN_SECRET is not configured", 500);
@@ -42,6 +83,9 @@ export async function POST(request: NextRequest) {
   if (!timingSafeEqualString(password, secret)) {
     return jsonError("Invalid password", 401);
   }
+
+  // 로그인 성공 시 해당 IP의 시도 횟수 초기화
+  loginAttempts.delete(ip);
 
   const value = await createAdminSessionValue(secret);
   const response = NextResponse.json({ ok: true });

@@ -23,10 +23,6 @@ export default function SettingsPage() {
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="hospitalName">병원명</Label>
-              <Input id="hospitalName" placeholder="병원명을 입력하세요" />
-            </div>
-            <div className="space-y-2">
               <Label htmlFor="autoRefresh">자동 새로고침 간격 (초)</Label>
               <Input id="autoRefresh" type="number" defaultValue="30" />
             </div>

@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -20,239 +19,285 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
+import { Search } from "lucide-react";
 import {
   Users,
-  Edit,
   Trash2,
   RefreshCw,
-  AlertTriangle,
   CheckCircle,
-  TrendingUp,
+  XCircle,
+  Bell,
+  BellOff,
+  Clock,
+  PlayCircle,
+  Plus,
+  Stethoscope,
+  ExternalLink,
 } from "lucide-react";
 
-import { getActiveDoctors, getActiveServices } from "@/lib/storage";
+import { getActiveDoctors, getActiveServices, getJSON } from "@/lib/storage";
+import { LS_KEYS } from "@/lib/constants";
 import { formatMinutesCompact, formatTimeHM } from "@/lib/time";
-import { LineChart } from "@/components/charts/LineChart";
-import { AreaChart } from "@/components/charts/AreaChart";
-import { BarChart } from "@/components/charts/BarChart";
+import { QUEUE_STATUS_LABELS, QUEUE_STATUS_COLORS } from "@/lib/constants";
+import type { QueueStatus } from "@/types/queue";
+import type { PatientItem } from "@/types/domain";
 
 type QueueItem = {
   token: string;
   name: string;
-  age: number;
-  service: string;
-  room?: string;
+  phone: string;
+  treatmentItems: string[];
+  totalEstimatedMinutes: number;
   doctor?: string;
-  eta: number;
+  room?: string;
+  status: QueueStatus;
   estimatedWaitTime: number;
+  queuePosition: number;
+  patientsAhead: number;
   createdAt: number;
   updatedAt: number;
+  confirmedAt?: number;
+  inProgressAt?: number;
+  completedAt?: number;
+  cancelledAt?: number;
+  cancelReason?: string;
   elapsedMinutes: number;
-  remainingWaitTime: number;
 };
 
 export default function AdminDashboard() {
   const [queues, setQueues] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [editingQueue, setEditingQueue] = useState<QueueItem | null>(null);
   const [serviceOptions, setServiceOptions] = useState(getActiveServices());
   const [doctorOptions, setDoctorOptions] = useState<{ value: string; label: string }[]>([]);
-  type EditForm = {
-    name: string;
-    age: string;
-    service: string;
-    room: string;
-    doctor: string;
-    estimatedWaitTime: string;
-  };
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>("default");
+  const lastConfirmedCountRef = useRef(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [editForm, setEditForm] = useState<EditForm>({
+  // 환자 검색
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<PatientItem[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  // 접수 폼
+  const [regForm, setRegForm] = useState({
     name: "",
-    age: "",
-    service: "",
-    room: "",
+    phone: "",
+    selectedItems: [] as string[],
     doctor: "",
-    estimatedWaitTime: "",
   });
 
-  // 진료항목 목록 조회
-  const fetchServices = () => {
-    try {
-      setServiceOptions(getActiveServices());
-    } catch (error) {
-      console.error("진료항목 조회 실패:", error);
-    }
-  };
+  const fetchQueues = useCallback(
+    async (showRefreshing = false) => {
+      if (showRefreshing) setRefreshing(true);
 
-  // 의료진 목록 조회
-  const fetchDoctors = () => {
-    try {
-      setDoctorOptions(getActiveDoctors());
-    } catch (error) {
-      console.error("의료진 조회 실패:", error);
-    }
-  };
+      try {
+        const response = await fetch("/api/queue?action=list", { method: "PATCH" });
+        if (response.status === 401) {
+          window.location.assign("/admin/login?next=/admin");
+          return;
+        }
+        if (!response.ok) throw new Error("Failed to fetch queues");
 
-  // 대기열 목록 조회
-  const fetchQueues = async (showRefreshing = false) => {
-    if (showRefreshing) {
-      setRefreshing(true);
-    }
+        const data = await response.json();
+        const newQueues: QueueItem[] = data.queues;
+        setQueues(newQueues);
 
-    try {
-      const response = await fetch("/api/queue?action=list", {
-        method: "PATCH",
-      });
-
-      if (response.status === 401) {
-        window.location.assign("/admin/login?next=/admin");
-        return;
+        // 신규 접수 알림
+        const activeCount = newQueues.filter(
+          (q) => q.status === "confirmed" || q.status === "in_progress"
+        ).length;
+        if (activeCount > lastConfirmedCountRef.current && lastConfirmedCountRef.current >= 0) {
+          if (notificationPermission === "granted") {
+            new Notification("대기열 업데이트", {
+              body: `현재 대기 ${activeCount}명`,
+              icon: "/favicon.ico",
+            });
+          }
+          if (soundEnabled) {
+            try {
+              const audio = new Audio("/notification.mp3");
+              audio.play().catch(() => {});
+            } catch {
+              // ignore
+            }
+          }
+        }
+        lastConfirmedCountRef.current = activeCount;
+      } catch (error) {
+        console.error("대기열 조회 실패:", error);
+      } finally {
+        setLoading(false);
+        if (showRefreshing) setTimeout(() => setRefreshing(false), 500);
       }
+    },
+    [notificationPermission, soundEnabled]
+  );
 
-      if (!response.ok) throw new Error("Failed to fetch queues");
-
-      const data = await response.json();
-      setQueues(data.queues);
-    } catch (error) {
-      console.error("대기열 조회 실패:", error);
-    } finally {
-      setLoading(false);
-      if (showRefreshing) {
-        // 새로고침 애니메이션을 위해 약간의 지연
-        setTimeout(() => setRefreshing(false), 500);
-      }
+  // 접수 처리
+  const handleRegister = async () => {
+    if (!regForm.name.trim() || !regForm.phone.trim() || regForm.selectedItems.length === 0) {
+      alert("이름, 연락처, 진료항목을 모두 입력해주세요.");
+      return;
     }
-  };
 
-  // 대기열 업데이트
-  const updateQueue = async (token: string, data: EditForm) => {
+    setIsSubmitting(true);
     try {
       const response = await fetch("/api/queue", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          token,
-          ...data,
-          age: parseInt(data.age),
-          estimatedWaitTime: parseInt(data.estimatedWaitTime),
+          name: regForm.name.trim(),
+          phone: regForm.phone.trim(),
+          treatmentItems: regForm.selectedItems,
+          doctor: regForm.doctor || undefined,
         }),
       });
 
-      if (!response.ok) throw new Error("Failed to update queue");
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || "접수 실패");
+      }
 
+      // 폼 초기화
+      setRegForm({ name: "", phone: "", selectedItems: [], doctor: "" });
       await fetchQueues();
-      setEditingQueue(null);
     } catch (error) {
-      console.error("대기열 업데이트 실패:", error);
-      alert("업데이트에 실패했습니다.");
+      console.error("접수 실패:", error);
+      alert(error instanceof Error ? error.message : "접수 중 오류가 발생했습니다.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  // 대기열 삭제
-  const deleteQueue = async (token: string) => {
-    if (!confirm("정말로 이 대기열을 삭제하시겠습니까?")) return;
+  // 상태 전이
+  const handleStatusAction = async (
+    action: "startTreatment" | "complete" | "adminCancel",
+    token: string,
+    cancelReason?: string
+  ) => {
+    const labels: Record<string, string> = {
+      startTreatment: "진료 시작",
+      complete: "진료 완료",
+      adminCancel: "취소",
+    };
 
+    try {
+      const response = await fetch(`/api/queue?action=${action}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, cancelReason }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || `${labels[action]} 실패`);
+      }
+
+      await fetchQueues();
+    } catch (error) {
+      console.error(`${labels[action]} 실패:`, error);
+      alert(`${labels[action]}에 실패했습니다.`);
+    }
+  };
+
+  const deleteQueue = async (token: string) => {
+    if (!confirm("정말로 삭제하시겠습니까?")) return;
     try {
       const response = await fetch(`/api/queue?token=${encodeURIComponent(token)}`, {
         method: "DELETE",
       });
-
-      if (!response.ok) throw new Error("Failed to delete queue");
-
+      if (!response.ok) throw new Error("Failed to delete");
       await fetchQueues();
     } catch (error) {
-      console.error("대기열 삭제 실패:", error);
+      console.error("삭제 실패:", error);
       alert("삭제에 실패했습니다.");
     }
   };
 
-  // 즉시 완료 처리
-  const completeQueue = async (token: string) => {
-    if (!confirm("이 환자의 진료를 완료 처리하시겠습니까?")) return;
+  // 환자 검색
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    if (query.trim().length < 1) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+    setIsSearching(true);
+    const patients = getJSON<PatientItem[]>(LS_KEYS.patients) ?? [];
+    const q = query.trim().toLowerCase();
+    const results = patients
+      .filter(
+        (p) =>
+          p.isActive &&
+          (p.name.toLowerCase().includes(q) ||
+            p.phone.includes(q) ||
+            p.id.toLowerCase().includes(q))
+      )
+      .slice(0, 5);
+    setSearchResults(results);
+  };
 
-    try {
-      const response = await fetch("/api/queue", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          token,
-          estimatedWaitTime: 0, // 대기시간을 0으로 설정하여 완료 처리
-        }),
-      });
+  const selectPatient = (patient: PatientItem) => {
+    setRegForm((prev) => ({
+      ...prev,
+      name: patient.name,
+      phone: patient.phone,
+    }));
+    setSearchQuery("");
+    setSearchResults([]);
+    setIsSearching(false);
+  };
 
-      if (!response.ok) throw new Error("Failed to complete queue");
+  const toggleItem = (value: string) => {
+    setRegForm((prev) => ({
+      ...prev,
+      selectedItems: prev.selectedItems.includes(value)
+        ? prev.selectedItems.filter((v) => v !== value)
+        : [...prev.selectedItems, value],
+    }));
+  };
 
-      await fetchQueues();
-    } catch (error) {
-      console.error("완료 처리 실패:", error);
-      alert("완료 처리에 실패했습니다.");
+  const requestNotificationPermission = async () => {
+    if ("Notification" in window) {
+      const perm = await Notification.requestPermission();
+      setNotificationPermission(perm);
     }
   };
 
-  // 편집 모드 시작
-  const startEdit = (queue: QueueItem) => {
-    setEditingQueue(queue);
-    setEditForm({
-      name: queue.name,
-      age: queue.age.toString(),
-      service: queue.service,
-      room: queue.room || "",
-      doctor: queue.doctor || "",
-      estimatedWaitTime: queue.remainingWaitTime.toString(), // 현재 남은 시간을 기본값으로 설정
-    });
-  };
-
-  // 편집 저장
-  const handleSaveEdit = () => {
-    if (!editingQueue) return;
-    updateQueue(editingQueue.token, editForm);
-  };
-
-  // 편집 취소
-  const cancelEdit = () => {
-    setEditingQueue(null);
-    setEditForm({
-      name: "",
-      age: "",
-      service: "",
-      room: "",
-      doctor: "",
-      estimatedWaitTime: "",
-    });
-  };
-
-  // 대기열 보기
-  const viewQueue = (token: string) => {
-    window.open(`/queue?token=${encodeURIComponent(token)}`, "_blank");
-  };
-
-  // 수동 새로고침
-  const handleRefresh = () => {
-    fetchQueues(true);
-  };
-
   useEffect(() => {
-    fetchServices();
-    fetchDoctors();
+    try {
+      setServiceOptions(getActiveServices());
+      setDoctorOptions(getActiveDoctors());
+    } catch {
+      // ignore
+    }
     fetchQueues();
-    // 30초마다 자동 새로고침
-    const interval = setInterval(() => fetchQueues(), 30000);
+    const interval = setInterval(() => fetchQueues(), 10000);
+    if ("Notification" in window) setNotificationPermission(Notification.permission);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchQueues]);
 
-  const totalQueues = queues.length;
-  const urgentQueues = queues.filter(
-    (q) => q.remainingWaitTime <= 5 && q.remainingWaitTime > 0
-  ).length;
-  const completedQueues = queues.filter((q) => q.remainingWaitTime <= 0).length;
+  // 상태별 분류
+  const confirmedQueues = queues.filter((q) => q.status === "confirmed");
+  const inProgressQueues = queues.filter((q) => q.status === "in_progress");
+  const completedQueues = queues.filter((q) => q.status === "completed");
+  const cancelledQueues = queues.filter((q) => q.status === "cancelled");
+  const activeQueues = [...inProgressQueues, ...confirmedQueues];
 
-  const formatTime = formatMinutesCompact;
-  const formatCreatedTime = formatTimeHM;
+  // 선택된 진료항목의 합계 소요시간
+  const selectedTotalMinutes = regForm.selectedItems.reduce((sum, item) => {
+    const svc = serviceOptions.find((s) => s.value === item);
+    return sum + (svc?.waitTime || 10);
+  }, 0);
+
+  const maskPhone = (phone: string) => {
+    if (phone.length <= 4) return phone;
+    return phone.slice(0, 3) + "****" + phone.slice(-4);
+  };
 
   if (loading) {
     return (
@@ -267,339 +312,385 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6 p-6">
+      {/* 알림 설정 바 */}
+      <div className="flex items-center justify-end gap-4">
+        <div className="flex items-center gap-2">
+          {soundEnabled ? <Bell className="h-4 w-4 text-muted-foreground" /> : <BellOff className="h-4 w-4 text-muted-foreground" />}
+          <Label htmlFor="sound-toggle" className="text-sm">알림음</Label>
+          <Switch id="sound-toggle" checked={soundEnabled} onCheckedChange={setSoundEnabled} />
+        </div>
+        {notificationPermission !== "granted" && (
+          <Button variant="outline" size="sm" onClick={requestNotificationPermission}>
+            <Bell className="mr-2 h-4 w-4" />
+            브라우저 알림 허용
+          </Button>
+        )}
+      </div>
+
       {/* 통계 카드 */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">전체 대기</CardTitle>
-            <Users className="text-muted-foreground h-4 w-4" />
+            <CardTitle className="text-sm font-medium">대기 중</CardTitle>
+            <Clock className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {totalQueues}
-              <span className="text-muted-foreground ml-1 text-sm font-bold">명</span>
+            <div className="text-2xl font-bold text-primary">
+              {confirmedQueues.length}<span className="text-muted-foreground ml-1 text-sm">명</span>
             </div>
-            <p className="text-muted-foreground text-xs">현재 대기 중</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">임박 환자</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-orange-500" />
+            <CardTitle className="text-sm font-medium">진료중</CardTitle>
+            <Stethoscope className="h-4 w-4 text-orange-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-orange-600">
-              {urgentQueues}
-              <span className="text-muted-foreground ml-1 text-sm font-bold">명</span>
+              {inProgressQueues.length}<span className="text-muted-foreground ml-1 text-sm">명</span>
             </div>
-            <p className="text-muted-foreground text-xs">5분 이내</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">완료</CardTitle>
+            <CardTitle className="text-sm font-medium">진료완료</CardTitle>
             <CheckCircle className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {completedQueues}
-              <span className="text-muted-foreground ml-1 text-sm font-bold">명</span>
+              {completedQueues.length}<span className="text-muted-foreground ml-1 text-sm">명</span>
             </div>
-            <p className="text-muted-foreground text-xs">진료 완료</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">취소</CardTitle>
+            <XCircle className="h-4 w-4 text-gray-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-gray-500">
+              {cancelledQueues.length}<span className="text-muted-foreground ml-1 text-sm">건</span>
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* 대기열 목록 */}
+      {/* 접수 폼 */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>대기열 현황</CardTitle>
-              <CardDescription>
-                현재 대기 중인 환자 목록입니다. 정보를 수정하거나 삭제할 수 있습니다.
-              </CardDescription>
-            </div>
-            <Button
-              onClick={handleRefresh}
-              variant="outline"
-              disabled={refreshing}
-              className="min-w-[120px]"
-            >
-              <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-              {refreshing ? "새로고침 중..." : "새로고침"}
-            </Button>
-          </div>
+          <CardTitle className="flex items-center gap-2">
+            <Plus className="h-5 w-5" />
+            환자 접수
+          </CardTitle>
+          <CardDescription>환자 정보를 입력하고 접수하세요. 접수 시 환자에게 알림이 발송됩니다.</CardDescription>
         </CardHeader>
         <CardContent>
-          {queues.length === 0 ? (
-            <div className="py-8 text-center">
-              <Users className="text-muted-foreground mx-auto mb-4 h-12 w-12" />
-              <p className="text-muted-foreground">현재 대기 중인 환자가 없습니다.</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {queues.map((queue) => (
-                <div key={queue.token} className="rounded-lg border">
-                  {/* 대기열 정보 표시 */}
-                  <div className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="mb-2 flex items-center gap-4">
-                          <div className="font-medium">{queue.name}</div>
-                          <Badge variant="outline">({queue.age}세)</Badge>
-                          <Badge variant="secondary">{queue.service}</Badge>
-                          {queue.remainingWaitTime <= 5 && queue.remainingWaitTime > 0 && (
-                            <Badge variant="destructive">임박</Badge>
-                          )}
-                          {queue.room && <Badge variant="outline">{queue.room}호</Badge>}
-                          {queue.doctor && <Badge variant="outline">{queue.doctor}</Badge>}
-                        </div>
-                        <div className="text-muted-foreground space-y-1 text-sm">
-                          <div>대기번호: {queue.token}</div>
-                          <div>예상 대기시간: {queue.estimatedWaitTime}분</div>
-                          <div>남은 대기시간: {queue.remainingWaitTime}분</div>
-                          <div>접수 시간: {new Date(queue.createdAt).toLocaleTimeString()}</div>
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button onClick={() => startEdit(queue)} variant="outline" size="sm">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          onClick={() => deleteQueue(queue.token)}
-                          variant="outline"
-                          size="sm"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 편집 폼 (접을 수 있는 스타일) */}
-                  {editingQueue?.token === queue.token && (
-                    <div className="overflow-hidden bg-white transition-all duration-700 ease-in-out">
-                      <div className="animate-in fade-in-0 slide-in-from-top-2 transform space-y-4 px-4 pt-2 pb-4 transition-all duration-700 ease-in-out">
-                        <div className="space-y-6">
-                          <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="name" className="text-sm font-medium">
-                                이름
-                              </Label>
-                              <Input
-                                id="name"
-                                value={editForm.name}
-                                onChange={(e) =>
-                                  setEditForm((prev) => ({ ...prev, name: e.target.value }))
-                                }
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="age" className="text-sm font-medium">
-                                나이
-                              </Label>
-                              <Input
-                                id="age"
-                                type="number"
-                                value={editForm.age}
-                                onChange={(e) =>
-                                  setEditForm((prev) => ({ ...prev, age: e.target.value }))
-                                }
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="room" className="text-sm font-medium">
-                                진료실
-                              </Label>
-                              <Input
-                                id="room"
-                                value={editForm.room}
-                                onChange={(e) =>
-                                  setEditForm((prev) => ({ ...prev, room: e.target.value }))
-                                }
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="doctor" className="text-sm font-medium">
-                                담당의
-                              </Label>
-                              <Select
-                                value={editForm.doctor}
-                                onValueChange={(value) => {
-                                  setEditForm((prev) => ({ ...prev, doctor: value }));
-                                  // 담당의 선택 시 해당 의료진의 진료실 정보를 자동으로 설정
-                                  const selectedDoctor = doctorOptions.find(
-                                    (option) => option.value === value
-                                  );
-                                  if (selectedDoctor) {
-                                    const doctorName = selectedDoctor.value;
-                                    const storedDoctors = localStorage.getItem("doctors");
-                                    if (storedDoctors) {
-                                      const doctors: { name: string; room: string }[] =
-                                        JSON.parse(storedDoctors);
-                                      const doctor = doctors.find((d) => d.name === doctorName);
-                                      if (doctor) {
-                                        setEditForm((prev) => ({ ...prev, room: doctor.room }));
-                                      }
-                                    }
-                                  }
-                                }}
-                              >
-                                <SelectTrigger id="doctor" className="w-full">
-                                  <SelectValue placeholder="담당의를 선택하세요" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {doctorOptions.map((option) => (
-                                    <SelectItem key={option.value} value={option.value}>
-                                      {option.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-6">
-                            <div className="space-y-2">
-                              <Label htmlFor="service" className="text-sm font-medium">
-                                진료 항목
-                              </Label>
-                              <Select
-                                value={editForm.service}
-                                onValueChange={(value) =>
-                                  setEditForm((prev) => ({ ...prev, service: value }))
-                                }
-                              >
-                                <SelectTrigger id="service" className="w-full">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {serviceOptions.map((option) => (
-                                    <SelectItem key={option.value} value={option.value}>
-                                      {option.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="estimatedWaitTime" className="text-sm font-medium">
-                                예상 대기시간 (분)
-                              </Label>
-                              <Input
-                                id="estimatedWaitTime"
-                                type="number"
-                                value={editForm.estimatedWaitTime}
-                                onChange={(e) =>
-                                  setEditForm((prev) => ({
-                                    ...prev,
-                                    estimatedWaitTime: e.target.value,
-                                  }))
-                                }
-                              />
-                            </div>
-                          </div>
-                          <div className="flex justify-end gap-3 pt-2">
-                            <Button onClick={cancelEdit} variant="outline" size="sm">
-                              취소
-                            </Button>
-                            <Button onClick={handleSaveEdit} size="sm">
-                              저장
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+          <div className="space-y-4">
+            {/* 기존 환자 검색 */}
+            <div className="relative space-y-2">
+              <Label>기존 환자 검색</Label>
+              <Input
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                placeholder="이름, 전화번호, 환자번호로 검색"
+              />
+              {isSearching && searchResults.length > 0 && (
+                <div className="absolute top-full left-0 z-10 mt-1 w-full rounded-md border bg-popover shadow-md">
+                  {searchResults.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-accent"
+                      onClick={() => selectPatient(p)}
+                    >
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-muted-foreground">{p.phone}</span>
+                    </button>
+                  ))}
                 </div>
-              ))}
+              )}
+              {isSearching && searchResults.length === 0 && searchQuery.trim().length >= 1 && (
+                <p className="text-muted-foreground text-xs">검색 결과가 없습니다. 아래에 직접 입력해주세요.</p>
+              )}
             </div>
-          )}
+
+            <Separator />
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>환자명 *</Label>
+                <Input
+                  value={regForm.name}
+                  onChange={(e) => setRegForm((p) => ({ ...p, name: e.target.value }))}
+                  placeholder="홍길동"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>연락처 *</Label>
+                <Input
+                  inputMode="tel"
+                  value={regForm.phone}
+                  onChange={(e) =>
+                    setRegForm((p) => ({ ...p, phone: e.target.value.replace(/[^0-9]/g, "") }))
+                  }
+                  placeholder="01012345678"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>담당의</Label>
+                <Select
+                  value={regForm.doctor}
+                  onValueChange={(v) => setRegForm((p) => ({ ...p, doctor: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="선택" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {doctorOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>진료항목 * (복수 선택 가능)</Label>
+              <div className="flex flex-wrap gap-2">
+                {serviceOptions.map((svc) => {
+                  const isSelected = regForm.selectedItems.includes(svc.value);
+                  return (
+                    <Button
+                      key={svc.value}
+                      type="button"
+                      variant={isSelected ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => toggleItem(svc.value)}
+                      className={isSelected ? "" : ""}
+                    >
+                      {svc.label} ({svc.waitTime}분)
+                    </Button>
+                  );
+                })}
+              </div>
+              {regForm.selectedItems.length > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  예상 소요시간: <span className="font-medium text-foreground">{selectedTotalMinutes}분</span>
+                </p>
+              )}
+            </div>
+
+            <Separator />
+
+            <Button
+              onClick={handleRegister}
+              disabled={isSubmitting || !regForm.name.trim() || !regForm.phone.trim() || regForm.selectedItems.length === 0}
+              className="w-full md:w-auto"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              {isSubmitting ? "접수 중..." : "접수"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
-      {/* 차트 샘플 섹션 */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* 라인 차트 */}
-        <Card>
-          <CardHeader>
-            <CardTitle>환자 추세 (30일)</CardTitle>
-            <CardDescription>최근 30일 등록 수</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <LineChart />
-          </CardContent>
-          <CardFooter className="flex-col items-start gap-2 text-sm">
-            <div className="flex gap-2 leading-none font-medium">
-              Trending up by 5.2% this month <TrendingUp className="h-4 w-4" />
-            </div>
-            <div className="text-muted-foreground leading-none">
-              Showing total visitors for the last 6 months
-            </div>
-          </CardFooter>
-        </Card>
+      {/* 대기열 현황 — 담당의별 칸반 */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">
+            대기열 현황
+            {activeQueues.length > 0 && (
+              <Badge className="ml-2 bg-primary/10 text-primary">{activeQueues.length}</Badge>
+            )}
+          </h2>
+          <p className="text-muted-foreground text-sm">담당의별 환자 현황</p>
+        </div>
+        <Button onClick={() => fetchQueues(true)} variant="outline" disabled={refreshing}>
+          <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing ? "새로고침 중..." : "새로고침"}
+        </Button>
+      </div>
 
-        {/* 에어리어 차트 */}
+      {activeQueues.length === 0 ? (
         <Card>
-          <CardHeader>
-            <CardTitle>대기 시간 추세 (예시)</CardTitle>
-            <CardDescription>평균 대기시간 가상의 수치</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <AreaChart />
+          <CardContent className="py-8 text-center">
+            <Users className="text-muted-foreground mx-auto mb-3 h-10 w-10" />
+            <p className="text-muted-foreground">현재 대기 중인 환자가 없습니다.</p>
           </CardContent>
-          <CardFooter>
-            <div className="flex w-full items-start gap-2 text-sm">
-              <div className="grid gap-2">
-                <div className="flex items-center gap-2 leading-none font-medium">
-                  Trending up by 5.2% this month <TrendingUp className="h-4 w-4" />
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          {(() => {
+            // 담당의별 그룹핑
+            const grouped = new Map<string, QueueItem[]>();
+            for (const q of activeQueues) {
+              const key = q.doctor || "미지정";
+              const list = grouped.get(key) ?? [];
+              list.push(q);
+              grouped.set(key, list);
+            }
+
+            return Array.from(grouped.entries()).map(([doctorName, doctorQueues]) => {
+              const hasInProgress = doctorQueues.some((q) => q.status === "in_progress");
+              return (
+                <Card key={doctorName} className="flex flex-col">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <Stethoscope className="h-4 w-4" />
+                        {doctorName}
+                      </CardTitle>
+                      <Badge variant="secondary">{doctorQueues.length}명</Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="flex-1 space-y-2">
+                    {doctorQueues
+                      .sort((a, b) => a.queuePosition - b.queuePosition)
+                      .map((queue) => (
+                        <div
+                          key={queue.token}
+                          className={`rounded-lg border p-3 ${
+                            queue.status === "in_progress"
+                              ? "border-orange-300 bg-orange-50"
+                              : ""
+                          }`}
+                        >
+                          <div className="mb-2 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                                {queue.queuePosition}
+                              </span>
+                              <span className="font-medium">{queue.name}</span>
+                              <Badge className={`text-xs ${QUEUE_STATUS_COLORS[queue.status]}`}>
+                                {QUEUE_STATUS_LABELS[queue.status]}
+                              </Badge>
+                            </div>
+                          </div>
+                          <div className="mb-2 flex flex-wrap gap-1">
+                            {queue.treatmentItems.map((item) => (
+                              <Badge key={item} variant="secondary" className="text-xs">
+                                {item}
+                              </Badge>
+                            ))}
+                          </div>
+                          <div className="text-muted-foreground mb-2 text-xs">
+                            {maskPhone(queue.phone)} · 소요 {queue.totalEstimatedMinutes}분
+                            {queue.status === "confirmed" && queue.estimatedWaitTime > 0 && (
+                              <> · 대기 {formatMinutesCompact(queue.estimatedWaitTime)}</>
+                            )}
+                          </div>
+                          <div className="flex gap-1">
+                            {queue.status === "confirmed" && (
+                              <Button
+                                size="sm"
+                                className="h-7 bg-orange-500 px-2 text-xs hover:bg-orange-600"
+                                disabled={hasInProgress}
+                                onClick={() => handleStatusAction("startTreatment", queue.token)}
+                              >
+                                <PlayCircle className="mr-1 h-3 w-3" />
+                                진료시작
+                              </Button>
+                            )}
+                            {queue.status === "in_progress" && (
+                              <Button
+                                size="sm"
+                                className="h-7 bg-green-600 px-2 text-xs hover:bg-green-700"
+                                onClick={() => {
+                                  if (confirm("진료를 완료 처리하시겠습니까?")) {
+                                    handleStatusAction("complete", queue.token);
+                                  }
+                                }}
+                              >
+                                <CheckCircle className="mr-1 h-3 w-3" />
+                                진료완료
+                              </Button>
+                            )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2"
+                              onClick={() =>
+                                window.open(
+                                  `/queue?token=${encodeURIComponent(queue.token)}`,
+                                  "_blank"
+                                )
+                              }
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2"
+                              onClick={() => {
+                                if (confirm("이 접수를 취소하시겠습니까?")) {
+                                  handleStatusAction("adminCancel", queue.token);
+                                }
+                              }}
+                            >
+                              <XCircle className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                  </CardContent>
+                </Card>
+              );
+            });
+          })()}
+        </div>
+      )}
+
+      {/* 완료/취소 */}
+      {(completedQueues.length > 0 || cancelledQueues.length > 0) && (
+        <details className="group">
+          <summary className="cursor-pointer list-none">
+            <Card>
+              <CardHeader className="py-4">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">
+                    완료 / 취소
+                    <Badge variant="secondary" className="ml-2">
+                      {completedQueues.length + cancelledQueues.length}
+                    </Badge>
+                  </CardTitle>
+                  <span className="text-muted-foreground text-sm group-open:hidden">펼치기 ▼</span>
+                  <span className="text-muted-foreground hidden text-sm group-open:inline">접기 ▲</span>
                 </div>
-                <div className="text-muted-foreground flex items-center gap-2 leading-none">
-                  January - June 2024
+              </CardHeader>
+            </Card>
+          </summary>
+          <div className="mt-2 space-y-3">
+            {[...completedQueues, ...cancelledQueues].map((queue) => (
+              <div key={queue.token} className="rounded-lg border p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="mb-1 flex items-center gap-2">
+                      <span className="font-medium">{queue.name}</span>
+                      <Badge className={QUEUE_STATUS_COLORS[queue.status]}>
+                        {QUEUE_STATUS_LABELS[queue.status]}
+                      </Badge>
+                      {queue.treatmentItems.map((item) => (
+                        <Badge key={item} variant="secondary" className="text-xs">{item}</Badge>
+                      ))}
+                    </div>
+                    <div className="text-muted-foreground text-sm">
+                      접수: {formatTimeHM(queue.createdAt)}
+                      {queue.completedAt && <> · 완료: {formatTimeHM(queue.completedAt)}</>}
+                      {queue.cancelReason && <> · 사유: {queue.cancelReason}</>}
+                    </div>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => deleteQueue(queue.token)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
-            </div>
-          </CardFooter>
-        </Card>
-
-        {/* 바 차트 */}
-        <Card>
-          <CardHeader>
-            <CardTitle>시간대별 접수 수 (예시)</CardTitle>
-            <CardDescription>09~18시</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <BarChart />
-          </CardContent>
-          <CardFooter className="flex-col items-start gap-2 text-sm">
-            <div className="flex gap-2 leading-none font-medium">
-              Trending up by 5.2% this month <TrendingUp className="h-4 w-4" />
-            </div>
-            <div className="text-muted-foreground leading-none">
-              Showing total visitors for the last 6 months
-            </div>
-          </CardFooter>
-        </Card>
-
-        {/* 파이 차트 */}
-        <Card>
-          <CardHeader>
-            <CardTitle>진료 항목 비중 (예시)</CardTitle>
-            <CardDescription>일반/재진/검사/처방</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <BarChart />
-          </CardContent>
-          <CardFooter className="flex-col items-start gap-2 text-sm">
-            <div className="flex gap-2 leading-none font-medium">
-              Trending up by 5.2% this month <TrendingUp className="h-4 w-4" />
-            </div>
-            <div className="text-muted-foreground leading-none">
-              Showing total visitors for the last 6 months
-            </div>
-          </CardFooter>
-        </Card>
-      </div>
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
