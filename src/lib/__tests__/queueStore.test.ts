@@ -25,26 +25,26 @@ function makeItem(overrides: Partial<QueueData> = {}): QueueData {
 }
 
 describe("InMemoryQueueStore", () => {
-  it("stores and retrieves an item", () => {
+  it("stores and retrieves an item", async () => {
     const store = new InMemoryQueueStore();
     const item = makeItem();
-    store.set(item);
+    await store.set(item);
     expect(store.get("Q-TEST-001")).toEqual(item);
   });
 
-  it("lists all items", () => {
+  it("lists all items", async () => {
     const store = new InMemoryQueueStore();
-    store.set(makeItem({ token: "A" }));
-    store.set(makeItem({ token: "B" }));
+    await store.set(makeItem({ token: "A" }));
+    await store.set(makeItem({ token: "B" }));
     expect(store.list()).toHaveLength(2);
   });
 
-  it("filters by status with listByStatus", () => {
+  it("filters by status with listByStatus", async () => {
     const store = new InMemoryQueueStore();
-    store.set(makeItem({ token: "A", status: "confirmed" }));
-    store.set(makeItem({ token: "B", status: "in_progress" }));
-    store.set(makeItem({ token: "C", status: "confirmed" }));
-    store.set(makeItem({ token: "D", status: "completed" }));
+    await store.set(makeItem({ token: "A", status: "confirmed" }));
+    await store.set(makeItem({ token: "B", status: "in_progress" }));
+    await store.set(makeItem({ token: "C", status: "confirmed" }));
+    await store.set(makeItem({ token: "D", status: "completed" }));
 
     expect(store.listByStatus("confirmed")).toHaveLength(2);
     expect(store.listByStatus("in_progress")).toHaveLength(1);
@@ -52,10 +52,10 @@ describe("InMemoryQueueStore", () => {
     expect(store.listByStatus("cancelled")).toHaveLength(0);
   });
 
-  it("deletes an item", () => {
+  it("deletes an item", async () => {
     const store = new InMemoryQueueStore();
-    store.set(makeItem());
-    expect(store.delete("Q-TEST-001")).toBe(true);
+    await store.set(makeItem());
+    await expect(store.delete("Q-TEST-001")).resolves.toBe(true);
     expect(store.get("Q-TEST-001")).toBeUndefined();
   });
 });
@@ -83,9 +83,9 @@ describe("VALID_STATUS_TRANSITIONS", () => {
 });
 
 describe("computeQueueMetrics (담당의별 큐)", () => {
-  it("returns position 1 for first patient", () => {
+  it("returns position 1 for first patient", async () => {
     const store = new InMemoryQueueStore();
-    store.set(makeItem({ token: "A", totalEstimatedMinutes: 10, doctor: "김의사" }));
+    await store.set(makeItem({ token: "A", totalEstimatedMinutes: 10, doctor: "김의사" }));
 
     const metrics = computeQueueMetrics("A", store);
     expect(metrics.queuePosition).toBe(1);
@@ -93,12 +93,12 @@ describe("computeQueueMetrics (담당의별 큐)", () => {
     expect(metrics.estimatedWaitTime).toBe(0);
   });
 
-  it("calculates wait time based on same doctor patients ahead", () => {
+  it("calculates wait time based on same doctor patients ahead", async () => {
     const store = new InMemoryQueueStore();
     const now = Date.now();
-    store.set(makeItem({ token: "A", totalEstimatedMinutes: 10, doctor: "김의사", createdAt: now - 3000 }));
-    store.set(makeItem({ token: "B", totalEstimatedMinutes: 15, doctor: "김의사", createdAt: now - 2000 }));
-    store.set(makeItem({ token: "C", totalEstimatedMinutes: 5, doctor: "김의사", createdAt: now - 1000 }));
+    await store.set(makeItem({ token: "A", totalEstimatedMinutes: 10, doctor: "김의사", createdAt: now - 3000 }));
+    await store.set(makeItem({ token: "B", totalEstimatedMinutes: 15, doctor: "김의사", createdAt: now - 2000 }));
+    await store.set(makeItem({ token: "C", totalEstimatedMinutes: 5, doctor: "김의사", createdAt: now - 1000 }));
 
     const metricsC = computeQueueMetrics("C", store, now);
     expect(metricsC.queuePosition).toBe(3);
@@ -106,11 +106,11 @@ describe("computeQueueMetrics (담당의별 큐)", () => {
     expect(metricsC.estimatedWaitTime).toBe(25); // 10 + 15
   });
 
-  it("different doctors have independent queues", () => {
+  it("different doctors have independent queues", async () => {
     const store = new InMemoryQueueStore();
     const now = Date.now();
-    store.set(makeItem({ token: "A", totalEstimatedMinutes: 10, doctor: "김의사", createdAt: now - 3000 }));
-    store.set(makeItem({ token: "B", totalEstimatedMinutes: 15, doctor: "박의사", createdAt: now - 2000 }));
+    await store.set(makeItem({ token: "A", totalEstimatedMinutes: 10, doctor: "김의사", createdAt: now - 3000 }));
+    await store.set(makeItem({ token: "B", totalEstimatedMinutes: 15, doctor: "박의사", createdAt: now - 2000 }));
 
     const metricsA = computeQueueMetrics("A", store, now);
     expect(metricsA.queuePosition).toBe(1);
@@ -122,10 +122,10 @@ describe("computeQueueMetrics (담당의별 큐)", () => {
     expect(metricsB.estimatedWaitTime).toBe(0);
   });
 
-  it("accounts for in_progress remaining time within same doctor", () => {
+  it("accounts for in_progress remaining time within same doctor", async () => {
     const store = new InMemoryQueueStore();
     const now = Date.now();
-    store.set(
+    await store.set(
       makeItem({
         token: "A",
         status: "in_progress",
@@ -135,7 +135,7 @@ describe("computeQueueMetrics (담당의별 큐)", () => {
         createdAt: now - 10000,
       })
     );
-    store.set(makeItem({ token: "B", totalEstimatedMinutes: 10, doctor: "김의사", createdAt: now - 5000 }));
+    await store.set(makeItem({ token: "B", totalEstimatedMinutes: 10, doctor: "김의사", createdAt: now - 5000 }));
 
     const metricsB = computeQueueMetrics("B", store, now);
     expect(metricsB.patientsAhead).toBe(1);
@@ -144,14 +144,14 @@ describe("computeQueueMetrics (담당의별 큐)", () => {
 });
 
 describe("recalculateAllMetrics (담당의별)", () => {
-  it("updates positions within same doctor group", () => {
+  it("updates positions within same doctor group", async () => {
     const store = new InMemoryQueueStore();
     const now = Date.now();
-    store.set(makeItem({ token: "A", totalEstimatedMinutes: 10, doctor: "김의사", createdAt: now - 3000 }));
-    store.set(makeItem({ token: "B", totalEstimatedMinutes: 15, doctor: "김의사", createdAt: now - 2000 }));
-    store.set(makeItem({ token: "C", totalEstimatedMinutes: 5, doctor: "김의사", createdAt: now - 1000 }));
+    await store.set(makeItem({ token: "A", totalEstimatedMinutes: 10, doctor: "김의사", createdAt: now - 3000 }));
+    await store.set(makeItem({ token: "B", totalEstimatedMinutes: 15, doctor: "김의사", createdAt: now - 2000 }));
+    await store.set(makeItem({ token: "C", totalEstimatedMinutes: 5, doctor: "김의사", createdAt: now - 1000 }));
 
-    recalculateAllMetrics(store, now);
+    await recalculateAllMetrics(store, now);
 
     expect(store.get("A")!.queuePosition).toBe(1);
     expect(store.get("A")!.estimatedWaitTime).toBe(0);
@@ -161,14 +161,14 @@ describe("recalculateAllMetrics (담당의별)", () => {
     expect(store.get("C")!.estimatedWaitTime).toBe(25);
   });
 
-  it("different doctors get independent positions", () => {
+  it("different doctors get independent positions", async () => {
     const store = new InMemoryQueueStore();
     const now = Date.now();
-    store.set(makeItem({ token: "A", totalEstimatedMinutes: 10, doctor: "김의사", createdAt: now - 3000 }));
-    store.set(makeItem({ token: "B", totalEstimatedMinutes: 15, doctor: "박의사", createdAt: now - 2000 }));
-    store.set(makeItem({ token: "C", totalEstimatedMinutes: 5, doctor: "김의사", createdAt: now - 1000 }));
+    await store.set(makeItem({ token: "A", totalEstimatedMinutes: 10, doctor: "김의사", createdAt: now - 3000 }));
+    await store.set(makeItem({ token: "B", totalEstimatedMinutes: 15, doctor: "박의사", createdAt: now - 2000 }));
+    await store.set(makeItem({ token: "C", totalEstimatedMinutes: 5, doctor: "김의사", createdAt: now - 1000 }));
 
-    recalculateAllMetrics(store, now);
+    await recalculateAllMetrics(store, now);
 
     // 김의사 큐: A(1번), C(2번)
     expect(store.get("A")!.queuePosition).toBe(1);

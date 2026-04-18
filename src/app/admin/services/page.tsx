@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Plus, Edit, Trash2, Save, X, AlertTriangle } from "lucide-react";
+import { Plus, Edit, Trash2, Save, X, AlertTriangle, Download } from "lucide-react";
 import { ensureDefaultServices, getJSON, setJSON } from "@/lib/storage";
 import { LS_KEYS } from "@/lib/constants";
 import type { ServiceItem } from "@/types/domain";
@@ -303,9 +303,23 @@ export default function ServicesPage() {
                 onChange={handleCsvUpload}
                 disabled={isProcessingCsv}
               />
-              <p className="text-muted-foreground text-xs">
-                헤더는 허리치료, 무릎치료, 어깨치료, 목치료, 손/팔꿈치 치료 순서를 따라야 합니다.
-              </p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-muted-foreground text-xs">
+                  포맷: <code className="rounded bg-muted px-1">진료항목,대기시간(분)</code> — 한 행에 하나의 진료 기록.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  asChild
+                  className="shrink-0"
+                >
+                  <a href="/templates/wait-time-template.csv" download>
+                    <Download className="mr-1 h-3 w-3" />
+                    템플릿 다운로드
+                  </a>
+                </Button>
+              </div>
             </div>
             {csvMeta && (
               <div className="bg-muted/30 rounded-lg border p-4 text-sm">

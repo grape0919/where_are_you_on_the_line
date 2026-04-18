@@ -17,6 +17,8 @@ import {
   Calendar,
   SlidersHorizontal,
 } from "lucide-react";
+import { ErrorBoundary } from "@/components/error-boundary";
+import { SystemStatusBanner } from "@/components/system-status-banner";
 
 const sidebarItems = [
   {
@@ -146,7 +148,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-auto">{children}</main>
+        <main className="flex-1 overflow-auto">
+          <SystemStatusBanner />
+          <ErrorBoundary>{children}</ErrorBoundary>
+        </main>
       </div>
 
       {/* Mobile Overlay */}

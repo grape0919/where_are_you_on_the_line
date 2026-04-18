@@ -8,42 +8,53 @@ export const VALID_STATUS_TRANSITIONS: Record<QueueStatus, QueueStatus[]> = {
 };
 
 export interface QueueStore {
+  // 읽기 — 인메모리 캐시에서 동기 반환
   get(token: string): QueueData | undefined;
-  set(item: QueueData): void;
-  update(token: string, patch: Partial<QueueData>): QueueData | undefined;
-  delete(token: string): boolean;
   list(): QueueData[];
   listByStatus(status: QueueStatus): QueueData[];
+
+  // 쓰기 — DB 영속화 포함 async
+  set(item: QueueData): Promise<void>;
+  update(token: string, patch: Partial<QueueData>): Promise<QueueData | undefined>;
+  delete(token: string): Promise<boolean>;
+  clear(): Promise<void>;
 }
 
 export class InMemoryQueueStore implements QueueStore {
   private store = new Map<string, QueueData>();
+
   get(token: string) {
     return this.store.get(token);
   }
-  set(item: QueueData) {
+
+  list() {
+    return Array.from(this.store.values());
+  }
+
+  listByStatus(status: QueueStatus) {
+    return Array.from(this.store.values()).filter((item) => item.status === status);
+  }
+
+  async set(item: QueueData): Promise<void> {
     this.store.set(item.token, item);
   }
-  update(token: string, patch: Partial<QueueData>) {
+
+  async update(token: string, patch: Partial<QueueData>): Promise<QueueData | undefined> {
     const curr = this.store.get(token);
     if (!curr) return undefined;
     const updated = { ...curr, ...patch, updatedAt: Date.now() } as QueueData;
     this.store.set(token, updated);
     return updated;
   }
-  delete(token: string) {
+
+  async delete(token: string): Promise<boolean> {
     return this.store.delete(token);
   }
-  list() {
-    return Array.from(this.store.values());
-  }
-  listByStatus(status: QueueStatus) {
-    return Array.from(this.store.values()).filter((item) => item.status === status);
+
+  async clear(): Promise<void> {
+    this.store.clear();
   }
 }
-
-// Placeholder for future Redis integration
-export class RedisQueueStore extends InMemoryQueueStore {}
 
 // 활성 대기열 (confirmed + in_progress) 을 접수 순서로 정렬
 export function getActiveQueue(store: QueueStore): QueueData[] {
@@ -96,7 +107,7 @@ export function computeQueueMetrics(
 }
 
 // 모든 활성 환자의 메트릭 일괄 재계산 (담당의별)
-export function recalculateAllMetrics(store: QueueStore, now = Date.now()): void {
+export async function recalculateAllMetrics(store: QueueStore, now = Date.now()): Promise<void> {
   const activeQueue = getActiveQueue(store);
 
   // 담당의별로 그룹핑
@@ -108,17 +119,21 @@ export function recalculateAllMetrics(store: QueueStore, now = Date.now()): void
     byDoctor.set(key, group);
   }
 
-  // 각 담당의 그룹 내에서 순서·대기시간 계산
+  // 각 담당의 그룹 내에서 순서·대기시간 계산 — 병렬 DB 업데이트
+  const updates: Promise<unknown>[] = [];
   for (const group of byDoctor.values()) {
     let cumulativeWait = 0;
     for (let i = 0; i < group.length; i++) {
       const item = group[i]!;
-      store.update(item.token, {
-        queuePosition: i + 1,
-        patientsAhead: i,
-        estimatedWaitTime: cumulativeWait,
-      });
+      updates.push(
+        store.update(item.token, {
+          queuePosition: i + 1,
+          patientsAhead: i,
+          estimatedWaitTime: cumulativeWait,
+        })
+      );
       cumulativeWait += getRemainingMinutes(item, now);
     }
   }
+  await Promise.all(updates);
 }

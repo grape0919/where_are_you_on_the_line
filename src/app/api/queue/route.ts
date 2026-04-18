@@ -1,18 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { QueueData, QueueStatus } from "@/types/queue";
-import { SERVICE_WAIT_TIMES } from "@/lib/constants";
 
 import {
   InMemoryQueueStore,
-  RedisQueueStore,
   VALID_STATUS_TRANSITIONS,
   computeQueueMetrics,
   recalculateAllMetrics,
 } from "@/lib/queueStore";
-import { isRedisEnabled } from "@/lib/env";
+import { isDbEnabled } from "@/lib/env";
 import { ADMIN_COOKIE_NAME, verifyAdminSessionValue } from "@/lib/adminAuth";
+import { startAutoResetScheduler, loadOperatingHoursFromDb } from "@/lib/autoReset";
+import {
+  checkAndNotifyApproaching,
+  clearApproachingNotification,
+  clearAllApproachingNotifications,
+  sendNotification,
+} from "@/lib/notification";
+import { PostgresQueueStore } from "@/lib/postgresQueueStore";
 
-const store = isRedisEnabled() ? new RedisQueueStore() : new InMemoryQueueStore();
+const store = isDbEnabled() ? new PostgresQueueStore() : new InMemoryQueueStore();
+
+// 서버 시작 시 초기화: DB 모드일 때 데이터 로드 + 운영시간 로드
+let initError: Error | null = null;
+
+const ready = (async () => {
+  try {
+    if (isDbEnabled()) {
+      if (store instanceof PostgresQueueStore) await store.loadFromDb();
+      await loadOperatingHoursFromDb();
+    }
+    startAutoResetScheduler(store);
+  } catch (err) {
+    initError = err instanceof Error ? err : new Error(String(err));
+    console.error("[API] Server initialization failed:", err);
+  }
+})();
+
+async function ensureReady(): Promise<void> {
+  await ready;
+  if (initError) throw initError;
+}
 
 async function isAdminAuthorized(request: NextRequest): Promise<boolean> {
   const secret = process.env.ADMIN_SECRET;
@@ -35,14 +62,16 @@ function generateToken(): string {
   return `Q-${uuid}`.toUpperCase();
 }
 
-// 진료항목별 소요시간 조회
-function getTreatmentDuration(items: string[]): number {
-  return items.reduce((sum, item) => sum + (SERVICE_WAIT_TIMES[item] || 10), 0);
+// 소요시간 유효성 검증 (0 이하이거나 비정상이면 기본값)
+function validateDuration(minutes: unknown): number | null {
+  if (typeof minutes === "number" && minutes > 0 && minutes <= 1440) return minutes;
+  return null;
 }
 
 // GET: 환자 대기열 조회 (인증 불필요 — 토큰이 접근 증명)
 export async function GET(request: NextRequest) {
   try {
+    await ensureReady();
     const { searchParams } = new URL(request.url);
     const token = searchParams.get("token");
 
@@ -75,12 +104,13 @@ export async function GET(request: NextRequest) {
 // POST: 직원이 환자 접수 (관리자 전용)
 export async function POST(request: NextRequest) {
   try {
+    await ensureReady();
     if (!(await isAdminAuthorized(request))) {
       return unauthorized();
     }
 
     const body = await request.json();
-    const { name, phone, treatmentItems, doctor, room } = body;
+    const { name, phone, treatmentItems, totalEstimatedMinutes: clientMinutes, doctor, room } = body;
 
     // 입력 검증
     if (!name || !phone || !treatmentItems || !Array.isArray(treatmentItems) || treatmentItems.length === 0) {
@@ -98,7 +128,8 @@ export async function POST(request: NextRequest) {
 
     const token = generateToken();
     const now = Date.now();
-    const totalEstimatedMinutes = getTreatmentDuration(treatmentItems);
+    // 관리자 UI에서 계산한 소요시간 사용 (관리자 설정 진료항목 waitTime 기반)
+    const totalEstimatedMinutes = validateDuration(clientMinutes) ?? treatmentItems.length * 10;
 
     const queueItem: QueueData = {
       token,
@@ -117,17 +148,28 @@ export async function POST(request: NextRequest) {
       confirmedAt: now,
     };
 
-    store.set(queueItem);
+    await store.set(queueItem);
 
     // 전체 대기열 메트릭 재계산
-    recalculateAllMetrics(store, now);
+    await recalculateAllMetrics(store, now);
 
     // 재계산된 데이터 다시 조회
     const updated = store.get(token)!;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
     const queueUrl = `/queue?token=${encodeURIComponent(token)}`;
 
-    // TODO: Phase 2 — 카카오/SMS 알림 발송 트리거
-    // await sendNotification({ phone, type: "registration", queueUrl, ... });
+    // 접수 완료 알림 발송 (Phase 2에서 실제 채널 연동)
+    sendNotification({
+      phone,
+      name: name.trim(),
+      type: "registration",
+      queuePosition: updated.queuePosition,
+      estimatedWaitMinutes: updated.estimatedWaitTime,
+      queueUrl: appUrl ? `${appUrl}${queueUrl}` : queueUrl,
+    }).catch((err) => console.error("[Notification] 접수 알림 발송 오류:", err));
+
+    // 임박 알림 대상 체크
+    checkAndNotifyApproaching(store, appUrl);
 
     return NextResponse.json({
       ...updated,
@@ -142,12 +184,13 @@ export async function POST(request: NextRequest) {
 // PUT: 대기열 정보 수정 (관리자용)
 export async function PUT(request: NextRequest) {
   try {
+    await ensureReady();
     if (!(await isAdminAuthorized(request))) {
       return unauthorized();
     }
 
     const body = await request.json();
-    const { token, name, phone, treatmentItems, doctor, room } = body;
+    const { token, name, phone, treatmentItems, totalEstimatedMinutes: clientMinutes, doctor, room } = body;
 
     if (!token) {
       return NextResponse.json({ error: "Token is required" }, { status: 400 });
@@ -165,11 +208,13 @@ export async function PUT(request: NextRequest) {
     if (room != null) patch.room = room;
     if (treatmentItems != null && Array.isArray(treatmentItems)) {
       patch.treatmentItems = treatmentItems;
-      patch.totalEstimatedMinutes = getTreatmentDuration(treatmentItems);
+      // 클라이언트가 보낸 소요시간 사용, 없으면 기존값 유지
+      const validated = validateDuration(clientMinutes);
+      if (validated) patch.totalEstimatedMinutes = validated;
     }
 
-    const updatedItem = store.update(token, patch);
-    recalculateAllMetrics(store);
+    const updatedItem = await store.update(token, patch);
+    await recalculateAllMetrics(store);
 
     return NextResponse.json(updatedItem);
   } catch (error) {
@@ -181,6 +226,7 @@ export async function PUT(request: NextRequest) {
 // DELETE: 대기열 삭제 (관리자용)
 export async function DELETE(request: NextRequest) {
   try {
+    await ensureReady();
     if (!(await isAdminAuthorized(request))) {
       return unauthorized();
     }
@@ -192,12 +238,12 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Token is required" }, { status: 400 });
     }
 
-    const deleted = store.delete(token);
+    const deleted = await store.delete(token);
     if (!deleted) {
       return NextResponse.json({ error: "Queue not found" }, { status: 404 });
     }
 
-    recalculateAllMetrics(store);
+    await recalculateAllMetrics(store);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Queue deletion error:", error);
@@ -208,6 +254,7 @@ export async function DELETE(request: NextRequest) {
 // PATCH: 대기열 목록 조회 + 상태 전이 액션 (관리자용)
 export async function PATCH(request: NextRequest) {
   try {
+    await ensureReady();
     if (!(await isAdminAuthorized(request))) {
       return unauthorized();
     }
@@ -217,7 +264,7 @@ export async function PATCH(request: NextRequest) {
 
     if (action === "list") {
       // 목록 반환 전 메트릭 재계산
-      recalculateAllMetrics(store);
+      await recalculateAllMetrics(store);
 
       const queues = store.list().map((item) => ({
         ...item,
@@ -287,10 +334,27 @@ export async function PATCH(request: NextRequest) {
             : undefined;
       }
 
-      const updated = store.update(token, patch);
-      recalculateAllMetrics(store, now);
+      const updated = await store.update(token, patch);
+      await recalculateAllMetrics(store, now);
+
+      // 완료/취소 시 임박 알림 이력 제거
+      if (action === "complete" || action === "adminCancel") {
+        clearApproachingNotification(token);
+      }
+
+      // 대기 중 환자 임박 알림 체크
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+      checkAndNotifyApproaching(store, appUrl);
 
       return NextResponse.json(updated);
+    }
+
+    // 대기열 전체 초기화
+    if (action === "reset") {
+      const count = store.list().length;
+      await store.clear();
+      clearAllApproachingNotifications();
+      return NextResponse.json({ success: true, cleared: count });
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });

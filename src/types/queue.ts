@@ -31,3 +31,8 @@ export type QueueData = {
 export type QueueState = QueueData & {
   eta: number; // remaining minutes (실시간 계산)
 };
+
+// 관리자 대시보드용 (API list 응답에 elapsedMinutes 포함)
+export type QueueItem = QueueData & {
+  elapsedMinutes: number;
+};

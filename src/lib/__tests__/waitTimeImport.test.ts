@@ -8,17 +8,29 @@ import {
 } from "@/lib/waitTimeImport";
 
 describe("wait time import utilities", () => {
+  // long format: 각 행 = 진료항목 + 대기시간
   const sampleCsv = [
-    "허리치료,무릎치료,어깨치료,목치료,손/팔꿈치 치료",
-    "10,20,30,40,50",
-    "20,30,40,50,60",
-    "15분, 25, ,35 ,45",
+    "진료항목,대기시간(분)",
+    "허리치료,10",
+    "허리치료,20",
+    "허리치료,15분",
+    "무릎치료,20",
+    "무릎치료,30",
+    "무릎치료,25",
+    "어깨치료,30",
+    "어깨치료,40",
+    "목치료,40",
+    "목치료,50",
+    "목치료,35",
+    "손/팔꿈치 치료,50",
+    "손/팔꿈치 치료,60",
+    "손/팔꿈치 치료,45",
   ].join("\n");
 
-  it("parses dynamic headers into datasets", () => {
+  it("parses long format into datasets grouped by label", () => {
     const dataset = parseWaitTimeCsv(sampleCsv);
 
-    expect(dataset.patientCount).toBe(3);
+    expect(dataset.patientCount).toBe(14);
     expect(dataset.datasets.map((item) => item.label)).toEqual([
       "허리치료",
       "무릎치료",
@@ -70,12 +82,22 @@ describe("wait time import utilities", () => {
     expect(result.strategy.id).toBe("max");
   });
 
-  it("throws when no numeric data exists", () => {
-    const emptyCsv = ["A,B,C", ",,"].join("\n");
-    const dataset = parseWaitTimeCsv(emptyCsv);
+  it("ignores rows with missing labels or invalid numbers", () => {
+    const csv = [
+      "진료항목,대기시간(분)",
+      "허리치료,15",
+      ",20",
+      "무릎치료,",
+      "무릎치료,abc",
+      "무릎치료,25",
+    ].join("\n");
 
-    expect(() => calculateWaitTimeStats(dataset)).toThrow("숫자 데이터가 없어");
+    const dataset = parseWaitTimeCsv(csv);
+    const result = calculateWaitTimeStats(dataset);
+
+    expect(result.stats).toEqual([
+      { label: "허리치료", value: "허리치료", waitTime: 15, sampleSize: 1 },
+      { label: "무릎치료", value: "무릎치료", waitTime: 25, sampleSize: 1 },
+    ]);
   });
 });
-
-

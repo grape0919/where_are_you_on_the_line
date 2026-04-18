@@ -1,9 +1,10 @@
 services:
   web:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: allright-web
+    image: node:22-alpine
+    container_name: allright-web-dev
+    working_dir: /app
+    volumes:
+      - ./:/app
     ports:
       - "3000:3000"
     env_file:
@@ -11,6 +12,7 @@ services:
     environment:
       - USE_DB=true
       - DATABASE_URL=postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-allright}
+    command: sh -lc "corepack enable && pnpm install && npx prisma migrate deploy && pnpm dev"
     depends_on:
       db:
         condition: service_healthy
@@ -18,27 +20,9 @@ services:
       - app
     restart: unless-stopped
 
-  migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: builder
-    container_name: allright-migrate
-    env_file:
-      - .env.docker
-    environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-allright}
-    depends_on:
-      db:
-        condition: service_healthy
-    command: npx prisma migrate deploy
-    networks:
-      - app
-    restart: "no"
-
   db:
     image: postgres:15-alpine
-    container_name: allright-db
+    container_name: allright-db-dev
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}

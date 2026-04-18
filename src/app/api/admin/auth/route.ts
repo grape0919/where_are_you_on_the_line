@@ -67,6 +67,11 @@ export async function POST(request: NextRequest) {
   if (!secret) {
     return jsonError("ADMIN_SECRET is not configured", 500);
   }
+  // 프로덕션에서 약한 시크릿 차단 (최소 16자)
+  if (process.env.NODE_ENV === "production" && secret.length < 16) {
+    console.error("[admin/auth] ADMIN_SECRET은 프로덕션에서 16자 이상이어야 합니다.");
+    return jsonError("Server misconfiguration", 500);
+  }
 
   let body: LoginRequestBody = {};
   try {

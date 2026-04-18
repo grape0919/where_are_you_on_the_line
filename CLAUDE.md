@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Hospital (올바른정형외과) patient queue management system — handles patient registration, queue tracking, reservations, and admin dashboard. Built as a single Next.js 15 App Router application.
 
-**Current storage**: queue data lives in server-side in-memory `Map`; reservations/master data use browser `localStorage`. Redis/PostgreSQL integration is planned but not yet implemented.
+**Storage**: `USE_DB=true` → PostgreSQL via Prisma ORM (`PostgresQueueStore`), otherwise in-memory `Map` (`InMemoryQueueStore`). Operating hours settings also persist to PostgreSQL when DB mode is active. Reservations/master data use browser `localStorage`.
 
 ## Commands
 
@@ -23,25 +23,43 @@ pnpm -s tsc --noEmit  # typecheck (used in CI)
 
 Run a single test file: `pnpm vitest run src/lib/__tests__/eta.test.ts`
 
+```bash
+# Database (Prisma)
+npx prisma generate        # regenerate client after schema change
+npx prisma migrate dev      # create + apply migration (dev)
+npx prisma migrate deploy   # apply pending migrations (prod)
+```
+
+```bash
+# Docker
+docker compose up -d                                  # production (build + PostgreSQL)
+docker compose -f docker-compose.dev.yml up -d        # development (hot reload + PostgreSQL)
+```
+
 CI runs lint, typecheck, and test on PRs to `main`.
 
 ## Architecture
 
 ### Route structure
 
-- **Patient pages**: `/` (home), `/register` (check-in), `/queue?token=...` (wait status), `/reservation` (booking)
-- **Admin pages**: `/admin/login`, `/admin` (dashboard), `/admin/services`, `/admin/doctors`, `/admin/patients`, `/admin/reservations`, `/admin/reservations/capacity`, `/admin/settings`
-- **API routes**: `/api/queue` (CRUD + list via PATCH), `/api/admin/auth` (login/logout)
+- **Patient pages**: `/` (home), `/queue?token=...` (wait status), `/reservation` (booking)
+  - `/register` exists but registration is now staff-initiated from the admin dashboard
+- **Admin pages**: `/admin/login`, `/admin` (dashboard — registration form + kanban), `/admin/services`, `/admin/doctors`, `/admin/patients`, `/admin/reservations`, `/admin/reservations/capacity`, `/admin/settings`
+- **API routes**: `/api/queue` (CRUD + list + status transitions via PATCH), `/api/settings` (operating hours GET/PUT), `/api/admin/auth` (login/logout)
 
 ### Key modules in `src/lib/`
 
-- `queueStore.ts` — `QueueStore` interface with `InMemoryQueueStore` implementation + `computeRemainingWait` helper. `RedisQueueStore` is a placeholder extending `InMemoryQueueStore`.
+- `prisma.ts` — Prisma client singleton (uses `@prisma/adapter-pg` for Prisma v7). Only instantiated when `USE_DB=true`.
+- `postgresQueueStore.ts` — `PostgresQueueStore` implements `QueueStore` with PostgreSQL persistence. Uses write-through cache (in-memory Map + async DB writes). `loadFromDb()` hydrates cache on server start.
+- `queueStore.ts` — `QueueStore` interface with `InMemoryQueueStore` implementation. Key helpers: `getActiveQueue` (confirmed + in_progress, sorted by createdAt), `computeQueueMetrics` (per-patient wait metrics within doctor's queue), `recalculateAllMetrics` (bulk recalculate all active patients grouped by doctor). `RedisQueueStore` is a placeholder.
+- `autoReset.ts` — operating hours stored server-side in-memory (`OperatingHoursRule[]`). `startAutoResetScheduler` runs a 1-minute interval that calls `store.clear()` when current time ≥ `closeTime + 2h`. Also exposes `getOperatingHours`/`setOperatingHours` used by `/api/settings`.
+- `notification.ts` — 알림 발송 인터페이스. `sendNotification(payload)` is a placeholder (Phase 2 — 카카오 알림톡 or SMS). `checkAndNotifyApproaching(store)` auto-detects confirmed patients with ETA ≤ 10 min and fires a one-time approaching notification per patient. Called after every `recalculateAllMetrics`. Notification history is in-memory (`Set<token>`) and cleared on patient complete/cancel/queue reset.
 - `useQueue.ts` — React Query hook for patient queue polling
 - `useReservation.ts` — reservation CRUD hook (localStorage-backed)
 - `adminAuth.ts` — admin session cookie creation/verification
-- `constants.ts` — default service items and wait times
+- `constants.ts` — default service items, wait times, `QUEUE_STATUS_LABELS`, `QUEUE_STATUS_COLORS`
 - `waitTimeImport.ts` — CSV upload parsing for service wait time data
-- `storage.ts` — localStorage abstraction for master data
+- `storage.ts` — localStorage abstraction for master data (`getActiveServices`, `getActiveDoctors`, `getJSON`)
 - `env.ts` — environment variable access helpers
 
 ### Auth flow
@@ -50,12 +68,46 @@ Admin routes (`/admin/*` except `/admin/login`) are protected by `middleware.ts`
 
 ### Types
 
-- `src/types/queue.ts` — `QueueData`, `QueueState`
-- `src/types/domain.ts` — `ServiceItem`, `DoctorItem`, `PatientItem`, `ReservationData`, `ReservationCapacityRule`
+- `src/types/queue.ts` — `QueueData`, `QueueState`, `QueueStatus` (`confirmed | in_progress | completed | cancelled`)
+- `src/types/domain.ts` — `ServiceItem`, `DoctorItem`, `PatientItem`, `ReservationData`, `ReservationCapacityRule`, `OperatingHoursRule`, `WeekdayToken`
 
 ### Data flow
 
-Queue API (`/api/queue/route.ts`) is the only server-side data endpoint. Admin-authenticated requests use `Authorization: Bearer <token>` header verified against the admin cookie. Master data (services, doctors, patients, capacity rules) is managed entirely client-side in localStorage via hooks.
+Two server-side data endpoints:
+- `/api/queue` — patient queue CRUD (GET by token, POST to register, PUT to edit, DELETE, PATCH for list/status transitions/reset). All mutating ops call `recalculateAllMetrics` after changes.
+- `/api/settings` — operating hours CRUD backed by module-level state in `autoReset.ts`.
+
+Admin dashboard requests authenticate via the admin session cookie (verified server-side on each request). Master data (services, doctors, patients, capacity rules) is managed entirely client-side in localStorage via hooks.
+
+### Notification flow (Phase 2 placeholder)
+
+All notification calls currently log to console only. Actual delivery channel (카카오 알림톡 or SMS) is undecided.
+
+| Trigger | Type | Timing |
+|---------|------|--------|
+| 환자 접수 (POST /api/queue) | `registration` | 즉시 |
+| 예상 대기 ≤ 10분 (recalculate 후) | `approaching` | 자동 감지, 환자당 1회 |
+| 진료 시작 (startTreatment) | `in_progress` | 현재 비활성 (주석 처리) |
+
+`notification.ts` exports: `sendNotification`, `checkAndNotifyApproaching`, `clearApproachingNotification`, `clearAllApproachingNotifications`. Integration points are in `/api/queue` route handlers and `autoReset.ts` scheduler.
+
+### Queue status machine
+
+```
+confirmed → in_progress → completed
+    ↓              ↓
+ cancelled      cancelled
+```
+
+Enforced in `VALID_STATUS_TRANSITIONS` (queueStore.ts) and at the API layer. Additional constraint: **only one `in_progress` patient per doctor** — `startTreatment` is rejected if the same doctor already has a patient in progress.
+
+### Admin dashboard behavior
+
+- Polls `/api/queue?action=list` (PATCH) every 10 seconds
+- Staff registers patients directly from the admin dashboard (name, phone, treatment items, doctor)
+- Active queue displayed as **kanban grouped by doctor** — each doctor column shows confirmed + in_progress patients sorted by `queuePosition`
+- Browser notification + audio (`/notification.mp3`) triggered when active count increases
+- `/api/settings` is unauthenticated for GET (operating hours display) but requires admin cookie for PUT
 
 ## Coding Conventions
 
@@ -78,4 +130,4 @@ Queue API (`/api/queue/route.ts`) is the only server-side data endpoint. Admin-a
 
 ## Environment Variables
 
-Copy `.env.example` to `.env`. Key variables: `ADMIN_SECRET` (required for admin auth), `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_DEV_PREFILL` (enables demo data prefill in forms). Feature flags `USE_REDIS` and `USE_DB` exist but are not yet functional.
+Copy `.env.example` to `.env`. Key variables: `ADMIN_SECRET` (required for admin auth), `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_DEV_PREFILL` (enables demo data prefill in forms). `USE_DB=true` + `DATABASE_URL` enables PostgreSQL persistence via Prisma. `USE_REDIS` exists but is not yet functional.

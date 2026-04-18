@@ -1,0 +1,44 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Queue {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  name      String
+  phone     String
+  treatmentItems     String[]
+  totalEstimatedMinutes Int
+  doctor    String?
+  room      String?
+  status    String   @default("confirmed") // confirmed, in_progress, completed, cancelled
+  estimatedWaitTime  Int @default(0)
+  queuePosition      Int @default(0)
+  patientsAhead      Int @default(0)
+  confirmedAt   BigInt?
+  inProgressAt  BigInt?
+  completedAt   BigInt?
+  cancelledAt   BigInt?
+  cancelReason  String?
+  createdAt     BigInt
+  updatedAt     BigInt
+
+  @@index([status])
+  @@index([doctor, status])
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@map("queues")
+}
+
+model Setting {
+  id    Int    @id @default(autoincrement())
+  key   String @unique
+  value String // JSON string
+
+  @@map("settings")
+}

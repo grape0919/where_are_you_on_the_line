@@ -40,6 +40,16 @@ export type ReservationData = {
 
 export type WeekdayToken = "ALL" | "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT" | "SUN";
 
+export type OperatingHoursRule = {
+  dayOfWeek: WeekdayToken; // MON~SUN (ALL은 기본값)
+  openTime: string; // "09:00"
+  closeTime: string; // "18:00"
+  isClosed: boolean; // 휴무일
+  hasLunch?: boolean; // 점심시간 사용 여부
+  lunchStart?: string; // "12:00" (hasLunch=true일 때만 유효)
+  lunchEnd?: string; // "13:00"
+};
+
 export type ReservationCapacityRule = {
   id: string;
   service: string; // service value or "ALL"

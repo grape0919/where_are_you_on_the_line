@@ -33,8 +33,6 @@ export interface WaitTimeStrategy {
 
 const splitCsvLine = (line: string): string[] => line.split(",").map((cell) => cell.trim());
 
-const normalizeHeader = (header: string, index: number): string => header.trim() || `컬럼${index + 1}`;
-
 const parseNumericCell = (cell?: string): number | null => {
   if (!cell) return null;
   const normalized = cell.replace(/[^\d.-]/g, "");
@@ -65,44 +63,60 @@ export function getDefaultWaitTimeStrategy(): WaitTimeStrategy {
   return averageStrategy;
 }
 
+/**
+ * Long format CSV 파서.
+ *
+ * 포맷:
+ *   진료항목,대기시간(분)
+ *   허리치료,15
+ *   무릎치료,20
+ *   ...
+ *
+ * - 헤더 2개 필요 (라벨 컬럼, 수치 컬럼)
+ * - 진료항목 이름은 행 기준으로 그룹핑
+ * - patientCount는 총 데이터 행 수
+ */
 export function parseWaitTimeCsv(csvText: string): WaitTimeDatasetResult {
   const trimmed = csvText.trim();
   if (!trimmed) {
     throw new Error("CSV 데이터가 비어 있습니다.");
   }
 
-  const lines = trimmed.split(CSV_NEWLINE).map((line) => line.trim()).filter(Boolean);
+  const lines = trimmed
+    .split(CSV_NEWLINE)
+    .map((line) => line.trim())
+    .filter(Boolean);
   if (lines.length < 2) {
     throw new Error("헤더와 최소 한 개의 데이터 행이 필요합니다.");
   }
 
-  const headers = splitCsvLine(lines[0]).map(normalizeHeader);
-  if (!headers.length) {
-    throw new Error("CSV 헤더를 파싱할 수 없습니다.");
+  const headerCells = splitCsvLine(lines[0]!);
+  if (headerCells.length < 2) {
+    throw new Error(
+      "헤더는 최소 2개 컬럼이 필요합니다. 예: '진료항목,대기시간(분)'"
+    );
   }
 
-  const datasets: WaitTimeDataset[] = headers.map((header, index) => ({
-    label: header,
-    value: header,
-    samples: [],
-  }));
-
+  const datasetMap = new Map<string, WaitTimeDataset>();
   const dataLines = lines.slice(1);
 
-  dataLines.forEach((line) => {
+  for (const line of dataLines) {
     const cells = splitCsvLine(line);
-    datasets.forEach((dataset, index) => {
-      const cellValue = cells[index];
-      const parsed = parseNumericCell(cellValue);
-      if (parsed != null && parsed >= 0) {
-        dataset.samples.push(parsed);
-      }
-    });
-  });
+    const label = cells[0]?.trim();
+    const waitTime = parseNumericCell(cells[1]);
+    if (!label || waitTime == null || waitTime < 0) continue;
+
+    let dataset = datasetMap.get(label);
+    if (!dataset) {
+      dataset = { label, value: label, samples: [] };
+      datasetMap.set(label, dataset);
+    }
+    dataset.samples.push(waitTime);
+  }
 
   return {
     patientCount: dataLines.length,
-    datasets,
+    datasets: Array.from(datasetMap.values()),
   };
 }
 
@@ -124,5 +138,3 @@ export function calculateWaitTimeStats(
     strategy,
   };
 }
-
-

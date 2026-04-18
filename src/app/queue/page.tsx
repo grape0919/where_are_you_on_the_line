@@ -9,6 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Bell, RefreshCw, ClipboardList, XCircle, CheckCircle, Stethoscope, Users } from "lucide-react";
 import { useQueue } from "@/lib/useQueue";
+import { SystemStatusBanner } from "@/components/system-status-banner";
 
 type StatusDisplay = {
   label: string;
@@ -16,6 +17,15 @@ type StatusDisplay = {
 };
 
 export default function QueuePage() {
+  return (
+    <>
+      <SystemStatusBanner />
+      <QueuePageContent />
+    </>
+  );
+}
+
+function QueuePageContent() {
   const [token, setToken] = useState<string>("");
   const [isClient, setIsClient] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
