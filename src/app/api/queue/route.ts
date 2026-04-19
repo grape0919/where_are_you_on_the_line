@@ -2,12 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import type { QueueData, QueueStatus } from "@/types/queue";
 
 import {
-  InMemoryQueueStore,
   VALID_STATUS_TRANSITIONS,
   computeQueueMetrics,
   recalculateAllMetrics,
 } from "@/lib/queueStore";
-import { isDbEnabled } from "@/lib/env";
 import { ADMIN_COOKIE_NAME, verifyAdminSessionValue } from "@/lib/adminAuth";
 import { startAutoResetScheduler, loadOperatingHoursFromDb } from "@/lib/autoReset";
 import {
@@ -18,17 +16,15 @@ import {
 } from "@/lib/notification";
 import { PostgresQueueStore } from "@/lib/postgresQueueStore";
 
-const store = isDbEnabled() ? new PostgresQueueStore() : new InMemoryQueueStore();
+const store = new PostgresQueueStore();
 
-// 서버 시작 시 초기화: DB 모드일 때 데이터 로드 + 운영시간 로드
+// 서버 시작 시 초기화: DB에서 캐시 로드 + 운영시간 로드
 let initError: Error | null = null;
 
 const ready = (async () => {
   try {
-    if (isDbEnabled()) {
-      if (store instanceof PostgresQueueStore) await store.loadFromDb();
-      await loadOperatingHoursFromDb();
-    }
+    await store.loadFromDb();
+    await loadOperatingHoursFromDb();
     startAutoResetScheduler(store);
   } catch (err) {
     initError = err instanceof Error ? err : new Error(String(err));
@@ -66,6 +62,38 @@ function generateToken(): string {
 function validateDuration(minutes: unknown): number | null {
   if (typeof minutes === "number" && minutes > 0 && minutes <= 1440) return minutes;
   return null;
+}
+
+/**
+ * 접수 시 환자 마스터 upsert. 환자 id 반환.
+ * - 같은 phone이 있으면 name/lastVisit 갱신
+ * - 없으면 새로 생성 (code 자동 부여: P0001, P0002, ...)
+ */
+async function upsertPatient(name: string, phone: string): Promise<number> {
+  const { prisma } = await import("@/lib/prisma");
+  const now = new Date();
+
+  const existing = await prisma.patient.findFirst({
+    where: { phone, isActive: true },
+    orderBy: { id: "desc" },
+  });
+
+  if (existing) {
+    await prisma.patient.update({
+      where: { id: existing.id },
+      data: { name, lastVisit: now },
+    });
+    return existing.id;
+  }
+
+  const last = await prisma.patient.findFirst({ orderBy: { id: "desc" } });
+  const nextSeq = (last?.id ?? 0) + 1;
+  const code = `P${nextSeq.toString().padStart(4, "0")}`;
+
+  const created = await prisma.patient.create({
+    data: { code, name, phone, lastVisit: now, isActive: true },
+  });
+  return created.id;
 }
 
 // GET: 환자 대기열 조회 (인증 불필요 — 토큰이 접근 증명)
@@ -131,8 +159,15 @@ export async function POST(request: NextRequest) {
     // 관리자 UI에서 계산한 소요시간 사용 (관리자 설정 진료항목 waitTime 기반)
     const totalEstimatedMinutes = validateDuration(clientMinutes) ?? treatmentItems.length * 10;
 
+    // 환자 마스터 upsert 먼저 — 접수 기록과 연결할 patientId 확보
+    const patientId = await upsertPatient(name.trim(), phone).catch((err) => {
+      console.error("[queue POST] 환자 upsert 실패:", err);
+      return null;
+    });
+
     const queueItem: QueueData = {
       token,
+      patientId,
       name: name.trim(),
       phone,
       treatmentItems,
@@ -303,20 +338,6 @@ export async function PATCH(request: NextRequest) {
           { error: `Cannot transition from '${queueItem.status}' to '${targetStatus}'` },
           { status: 400 }
         );
-      }
-
-      // 같은 담당의에 이미 진료중인 환자가 있으면 차단
-      if (action === "startTreatment") {
-        const doctorKey = queueItem.doctor || "";
-        const alreadyInProgress = store
-          .listByStatus("in_progress")
-          .some((q) => (q.doctor || "") === doctorKey && q.token !== token);
-        if (alreadyInProgress) {
-          return NextResponse.json(
-            { error: "해당 담당의에 이미 진료 중인 환자가 있습니다." },
-            { status: 400 }
-          );
-        }
       }
 
       const now = Date.now();

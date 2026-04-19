@@ -23,7 +23,7 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=4000
 ENV HOSTNAME="0.0.0.0"
 
 # 비-root 사용자로 실행 (보안)
@@ -40,6 +40,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 
 USER nextjs
 
-EXPOSE 3000
+EXPOSE 4000
 
 CMD ["node", "server.js"]

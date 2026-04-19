@@ -20,6 +20,10 @@ export interface QueueStore {
   clear(): Promise<void>;
 }
 
+/**
+ * 테스트 전용 인메모리 스토어 — 프로덕션에서는 PostgresQueueStore 사용.
+ * @internal
+ */
 export class InMemoryQueueStore implements QueueStore {
   private store = new Map<string, QueueData>();
 

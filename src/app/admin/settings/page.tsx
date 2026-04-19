@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Settings, Clock, Database, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+import { useConfirm } from "@/components/confirm-dialog";
 
 interface OperatingHoursRule {
   dayOfWeek: string;
@@ -30,6 +32,7 @@ const DAY_LABELS: Record<string, string> = {
 };
 
 export default function SettingsPage() {
+  const confirm = useConfirm();
   const [hours, setHours] = useState<OperatingHoursRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -64,10 +67,10 @@ export default function SettingsPage() {
         body: JSON.stringify({ operatingHours: hours }),
       });
       if (!response.ok) throw new Error("저장 실패");
-      alert("운영시간 설정이 저장되었습니다.");
+      toast.success("운영시간 설정 저장됨");
     } catch (error) {
       console.error("설정 저장 실패:", error);
-      alert("설정 저장에 실패했습니다.");
+      toast.error("설정 저장에 실패했습니다.");
     } finally {
       setSaving(false);
     }
@@ -75,7 +78,14 @@ export default function SettingsPage() {
 
   // 대기열 수동 초기화
   const handleReset = async () => {
-    if (!confirm("모든 대기열을 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다.")) return;
+    const ok = await confirm({
+      title: "대기열 초기화",
+      description:
+        "현재 접수된 모든 환자 대기열이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
+      confirmText: "초기화",
+      destructive: true,
+    });
+    if (!ok) return;
 
     try {
       const response = await fetch("/api/queue?action=reset", {
@@ -85,10 +95,10 @@ export default function SettingsPage() {
       });
       if (!response.ok) throw new Error("초기화 실패");
       const data = await response.json();
-      alert(`대기열 ${data.cleared}건이 초기화되었습니다.`);
+      toast.success(`대기열 ${data.cleared}건 초기화됨`);
     } catch (error) {
       console.error("초기화 실패:", error);
-      alert("대기열 초기화에 실패했습니다.");
+      toast.error("대기열 초기화에 실패했습니다.");
     }
   };
 
@@ -114,90 +124,148 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {hours.map((rule) => (
-            <div
-              key={rule.dayOfWeek}
-              className={`flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border p-3 ${
-                rule.isClosed ? "bg-muted/50 opacity-60" : ""
-              }`}
-            >
-              <div className="w-16 font-medium">{DAY_LABELS[rule.dayOfWeek]}</div>
+          {/* 평일 일괄 적용 */}
+          {hours.length > 0 && (
+            <div className="bg-muted/30 flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3 text-sm">
+              <span className="text-muted-foreground">빠른 적용:</span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const monRule = hours.find((r) => r.dayOfWeek === "MON");
+                  if (!monRule) return;
+                  setHours((prev) =>
+                    prev.map((r) =>
+                      ["TUE", "WED", "THU", "FRI"].includes(r.dayOfWeek)
+                        ? {
+                            ...r,
+                            openTime: monRule.openTime,
+                            closeTime: monRule.closeTime,
+                            isClosed: monRule.isClosed,
+                            hasLunch: monRule.hasLunch,
+                            lunchStart: monRule.lunchStart,
+                            lunchEnd: monRule.lunchEnd,
+                          }
+                        : r
+                    )
+                  );
+                }}
+              >
+                월요일 설정을 평일에 적용
+              </Button>
+            </div>
+          )}
 
-              <div className="flex items-center gap-2">
-                <Label className="text-xs text-muted-foreground">휴무</Label>
-                <Switch
-                  checked={rule.isClosed}
-                  onCheckedChange={(checked) =>
-                    updateRule(rule.dayOfWeek, { isClosed: checked })
-                  }
-                />
-              </div>
-
-              {!rule.isClosed && (
-                <>
-                  <div className="flex items-center gap-1">
-                    <Input
-                      type="time"
-                      value={rule.openTime}
-                      onChange={(e) => updateRule(rule.dayOfWeek, { openTime: e.target.value })}
-                      className="w-28"
-                    />
-                    <span className="text-muted-foreground">~</span>
-                    <Input
-                      type="time"
-                      value={rule.closeTime}
-                      onChange={(e) => updateRule(rule.dayOfWeek, { closeTime: e.target.value })}
-                      className="w-28"
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-2 border-l pl-4">
-                    <Label className="text-xs text-muted-foreground">점심</Label>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {hours.map((rule) => (
+              <div
+                key={rule.dayOfWeek}
+                className={`rounded-lg border p-4 transition ${
+                  rule.isClosed ? "bg-muted/40" : "bg-card"
+                }`}
+              >
+                {/* 헤더: 요일 + 휴무 토글 */}
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="font-semibold">{DAY_LABELS[rule.dayOfWeek]}</div>
+                  <div className="flex items-center gap-2">
+                    <Label
+                      htmlFor={`closed-${rule.dayOfWeek}`}
+                      className="text-muted-foreground text-xs"
+                    >
+                      휴무
+                    </Label>
                     <Switch
-                      checked={rule.hasLunch ?? false}
+                      id={`closed-${rule.dayOfWeek}`}
+                      checked={rule.isClosed}
                       onCheckedChange={(checked) =>
-                        updateRule(rule.dayOfWeek, {
-                          hasLunch: checked,
-                          lunchStart: checked ? rule.lunchStart ?? "13:00" : rule.lunchStart,
-                          lunchEnd: checked ? rule.lunchEnd ?? "14:00" : rule.lunchEnd,
-                        })
+                        updateRule(rule.dayOfWeek, { isClosed: checked })
                       }
                     />
                   </div>
+                </div>
 
-                  {rule.hasLunch && (
-                    <div className="flex items-center gap-1">
-                      <Input
-                        type="time"
-                        value={rule.lunchStart ?? "13:00"}
-                        onChange={(e) =>
-                          updateRule(rule.dayOfWeek, { lunchStart: e.target.value })
-                        }
-                        className="w-28"
-                      />
-                      <span className="text-muted-foreground">~</span>
-                      <Input
-                        type="time"
-                        value={rule.lunchEnd ?? "14:00"}
-                        onChange={(e) =>
-                          updateRule(rule.dayOfWeek, { lunchEnd: e.target.value })
-                        }
-                        className="w-28"
-                      />
+                {rule.isClosed ? (
+                  <p className="text-muted-foreground py-4 text-center text-sm">
+                    오늘은 휴무입니다
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {/* 영업시간 */}
+                    <div>
+                      <Label className="text-muted-foreground mb-1 block text-xs">
+                        영업시간
+                      </Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="time"
+                          value={rule.openTime}
+                          onChange={(e) =>
+                            updateRule(rule.dayOfWeek, { openTime: e.target.value })
+                          }
+                          className="flex-1"
+                        />
+                        <span className="text-muted-foreground">~</span>
+                        <Input
+                          type="time"
+                          value={rule.closeTime}
+                          onChange={(e) =>
+                            updateRule(rule.dayOfWeek, { closeTime: e.target.value })
+                          }
+                          className="flex-1"
+                        />
+                      </div>
                     </div>
-                  )}
 
-                  <span className="text-xs text-muted-foreground">
-                    초기화: {rule.closeTime} + 2시간
-                  </span>
-                </>
-              )}
+                    {/* 점심시간 */}
+                    <div>
+                      <div className="mb-1 flex items-center justify-between">
+                        <Label className="text-muted-foreground text-xs">점심시간</Label>
+                        <Switch
+                          checked={rule.hasLunch ?? false}
+                          onCheckedChange={(checked) =>
+                            updateRule(rule.dayOfWeek, {
+                              hasLunch: checked,
+                              lunchStart: checked
+                                ? rule.lunchStart ?? "13:00"
+                                : rule.lunchStart,
+                              lunchEnd: checked ? rule.lunchEnd ?? "14:00" : rule.lunchEnd,
+                            })
+                          }
+                        />
+                      </div>
+                      {rule.hasLunch ? (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="time"
+                            value={rule.lunchStart ?? "13:00"}
+                            onChange={(e) =>
+                              updateRule(rule.dayOfWeek, { lunchStart: e.target.value })
+                            }
+                            className="flex-1"
+                          />
+                          <span className="text-muted-foreground">~</span>
+                          <Input
+                            type="time"
+                            value={rule.lunchEnd ?? "14:00"}
+                            onChange={(e) =>
+                              updateRule(rule.dayOfWeek, { lunchEnd: e.target.value })
+                            }
+                            className="flex-1"
+                          />
+                        </div>
+                      ) : (
+                        <p className="text-muted-foreground text-xs italic">점심시간 없음</p>
+                      )}
+                    </div>
 
-              {rule.isClosed && (
-                <span className="text-sm text-muted-foreground">휴무일</span>
-              )}
-            </div>
-          ))}
+                    <div className="text-muted-foreground border-t pt-2 text-xs">
+                      자동 초기화: {rule.closeTime} + 2시간
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
 
           <Button onClick={handleSave} disabled={saving}>
             <Settings className="mr-2 h-4 w-4" />

@@ -6,6 +6,7 @@ import type { Queue } from "@/generated/prisma/client";
 function rowToQueueData(row: Queue): QueueData {
   return {
     token: row.token,
+    patientId: row.patientId ?? null,
     name: row.name,
     phone: row.phone,
     treatmentItems: row.treatmentItems,
@@ -29,6 +30,7 @@ function rowToQueueData(row: Queue): QueueData {
 function queueDataToCreateInput(item: QueueData) {
   return {
     token: item.token,
+    patientId: item.patientId ?? null,
     name: item.name,
     phone: item.phone,
     treatmentItems: item.treatmentItems,
@@ -51,6 +53,7 @@ function queueDataToCreateInput(item: QueueData) {
 
 function patchToUpdateInput(patch: Partial<QueueData>, now: number): Record<string, unknown> {
   const data: Record<string, unknown> = { updatedAt: BigInt(now) };
+  if (patch.patientId !== undefined) data.patientId = patch.patientId ?? null;
   if (patch.name != null) data.name = patch.name;
   if (patch.phone != null) data.phone = patch.phone;
   if (patch.doctor !== undefined) data.doctor = patch.doctor ?? null;

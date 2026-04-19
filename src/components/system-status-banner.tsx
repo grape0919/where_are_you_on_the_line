@@ -8,7 +8,6 @@ type Status = "ok" | "degraded" | "offline";
 interface HealthResponse {
   status: "ok" | "degraded";
   db: {
-    enabled: boolean;
     reachable: boolean;
     message?: string;
   };

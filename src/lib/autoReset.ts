@@ -1,7 +1,6 @@
 import type { OperatingHoursRule } from "@/types/domain";
 import type { QueueStore } from "@/lib/queueStore";
 import { clearAllApproachingNotifications } from "@/lib/notification";
-import { isDbEnabled } from "@/lib/env";
 
 // 서버 메모리에 운영시간 설정 저장
 const DEFAULT_OPERATING_HOURS: OperatingHoursRule[] = [
@@ -25,32 +24,30 @@ export function getOperatingHours(): OperatingHoursRule[] {
 
 /**
  * 운영시간 설정 저장.
- * DB 모드일 때 실패 시 메모리 롤백 후 throw.
+ * DB 실패 시 메모리 롤백 후 throw.
  */
 export async function setOperatingHours(hours: OperatingHoursRule[]): Promise<void> {
   const previous = operatingHours;
   operatingHours = hours;
 
-  if (isDbEnabled()) {
-    try {
-      const { prisma } = await import("@/lib/prisma");
-      await prisma.setting.upsert({
-        where: { key: "operatingHours" },
-        update: { value: JSON.stringify(hours) },
-        create: { key: "operatingHours", value: JSON.stringify(hours) },
-      });
-    } catch (err) {
-      operatingHours = previous; // 메모리 롤백
-      throw new Error(
-        `Failed to persist operating hours: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.setting.upsert({
+      where: { key: "operatingHours" },
+      update: { value: JSON.stringify(hours) },
+      create: { key: "operatingHours", value: JSON.stringify(hours) },
+    });
+  } catch (err) {
+    operatingHours = previous; // 메모리 롤백
+    throw new Error(
+      `Failed to persist operating hours: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 }
 
 /** DB에서 운영시간 설정 로드 (동시 호출 안전) */
 export async function loadOperatingHoursFromDb(): Promise<void> {
-  if (dbLoaded || !isDbEnabled()) return;
+  if (dbLoaded) return;
   if (loadingPromise) return loadingPromise;
 
   loadingPromise = (async () => {
@@ -132,18 +129,16 @@ async function markResetDone(): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
   lastResetDate = today;
 
-  if (isDbEnabled()) {
-    try {
-      const { prisma } = await import("@/lib/prisma");
-      await prisma.setting.upsert({
-        where: { key: "lastResetDate" },
-        update: { value: today },
-        create: { key: "lastResetDate", value: today },
-      });
-    } catch (err) {
-      console.error("[autoReset] lastResetDate 저장 실패:", err);
-      // 메모리는 유지 — 다음 시도에서 재저장
-    }
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.setting.upsert({
+      where: { key: "lastResetDate" },
+      update: { value: today },
+      create: { key: "lastResetDate", value: today },
+    });
+  } catch (err) {
+    console.error("[autoReset] lastResetDate 저장 실패:", err);
+    // 메모리는 유지 — 다음 시도에서 재저장
   }
 }
 

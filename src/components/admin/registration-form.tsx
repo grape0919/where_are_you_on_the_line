@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,10 +14,10 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Plus } from "lucide-react";
+import { toast } from "sonner";
 
-import { getJSON } from "@/lib/storage";
-import { LS_KEYS } from "@/lib/constants";
 import type { PatientItem } from "@/types/domain";
+import { usePatientSearch } from "@/lib/useMasterData";
 
 interface ServiceOption {
   value: string;
@@ -48,9 +48,11 @@ export function RegistrationForm({
   onRegister,
 }: RegistrationFormProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<PatientItem[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const { data: searchResults = [], isFetching } = usePatientSearch(searchQuery);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(0);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
 
   const [regForm, setRegForm] = useState({
     name: "",
@@ -59,36 +61,54 @@ export function RegistrationForm({
     doctor: "",
   });
 
+  const visibleResults = searchResults.slice(0, 5);
+
+  // 검색어 변경되면 선택 인덱스 초기화
+  useEffect(() => {
+    setHighlightIndex(0);
+  }, [searchQuery]);
+
+  // 바깥 클릭 시 결과 닫기
+  useEffect(() => {
+    if (!searchFocused) return;
+    const handleClick = (e: MouseEvent) => {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(e.target as Node)
+      ) {
+        setSearchFocused(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [searchFocused]);
+
   const selectedTotalMinutes = regForm.selectedItems.reduce((sum, item) => {
     const svc = serviceOptions.find((s) => s.value === item);
     return sum + (svc?.waitTime || 10);
   }, 0);
 
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-    if (query.trim().length < 1) {
-      setSearchResults([]);
-      setIsSearching(false);
-      return;
-    }
-    setIsSearching(true);
-    const patients = getJSON<PatientItem[]>(LS_KEYS.patients) ?? [];
-    const q = query.trim().toLowerCase();
-    const results = patients
-      .filter(
-        (p) =>
-          p.isActive &&
-          (p.name.toLowerCase().includes(q) || p.phone.includes(q) || p.id.toLowerCase().includes(q))
-      )
-      .slice(0, 5);
-    setSearchResults(results);
-  };
-
   const selectPatient = (patient: PatientItem) => {
     setRegForm((prev) => ({ ...prev, name: patient.name, phone: patient.phone }));
     setSearchQuery("");
-    setSearchResults([]);
-    setIsSearching(false);
+    setSearchFocused(false);
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!visibleResults.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightIndex((i) => (i + 1) % visibleResults.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightIndex((i) => (i - 1 + visibleResults.length) % visibleResults.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const selected = visibleResults[highlightIndex];
+      if (selected) selectPatient(selected);
+    } else if (e.key === "Escape") {
+      setSearchFocused(false);
+    }
   };
 
   const toggleItem = (value: string) => {
@@ -102,7 +122,7 @@ export function RegistrationForm({
 
   const handleSubmit = async () => {
     if (!regForm.name.trim() || !regForm.phone.trim() || regForm.selectedItems.length === 0) {
-      alert("이름, 연락처, 진료항목을 모두 입력해주세요.");
+      toast.error("이름, 연락처, 진료항목을 모두 입력해주세요.");
       return;
     }
 
@@ -116,10 +136,14 @@ export function RegistrationForm({
         doctor: regForm.doctor || undefined,
       });
       setRegForm({ name: "", phone: "", selectedItems: [], doctor: "" });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "접수 실패");
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const showResults = searchFocused && searchQuery.trim().length >= 1;
 
   return (
     <Card>
@@ -128,35 +152,49 @@ export function RegistrationForm({
           <Plus className="h-5 w-5" />
           환자 접수
         </CardTitle>
-        <CardDescription>환자 정보를 입력하고 접수하세요. 접수 시 환자에게 알림이 발송됩니다.</CardDescription>
+        <CardDescription>
+          환자 정보를 입력하고 접수하세요. 접수 시 환자에게 알림이 발송됩니다.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
           {/* 기존 환자 검색 */}
-          <div className="relative space-y-2">
+          <div className="relative space-y-2" ref={searchContainerRef}>
             <Label>기존 환자 검색</Label>
             <Input
               value={searchQuery}
-              onChange={(e) => handleSearch(e.target.value)}
-              placeholder="이름, 전화번호, 환자번호로 검색"
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              onFocus={() => setSearchFocused(true)}
+              placeholder="이름, 전화번호, 환자코드로 검색 (↑↓ 이동, Enter 선택)"
+              aria-autocomplete="list"
+              aria-expanded={showResults && visibleResults.length > 0}
             />
-            {isSearching && searchResults.length > 0 && (
+            {showResults && visibleResults.length > 0 && (
               <div className="absolute top-full left-0 z-10 mt-1 w-full rounded-md border bg-popover shadow-md">
-                {searchResults.map((p) => (
+                {visibleResults.map((p, i) => (
                   <button
                     key={p.id}
                     type="button"
-                    className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-accent"
+                    className={`flex w-full items-center justify-between px-3 py-2 text-sm ${
+                      i === highlightIndex ? "bg-accent" : "hover:bg-accent"
+                    }`}
                     onClick={() => selectPatient(p)}
+                    onMouseEnter={() => setHighlightIndex(i)}
                   >
-                    <span className="font-medium">{p.name}</span>
+                    <span className="font-medium">
+                      {p.name}{" "}
+                      <span className="text-muted-foreground text-xs">{p.code}</span>
+                    </span>
                     <span className="text-muted-foreground">{p.phone}</span>
                   </button>
                 ))}
               </div>
             )}
-            {isSearching && searchResults.length === 0 && searchQuery.trim().length >= 1 && (
-              <p className="text-muted-foreground text-xs">검색 결과가 없습니다. 아래에 직접 입력해주세요.</p>
+            {showResults && !isFetching && visibleResults.length === 0 && (
+              <p className="text-muted-foreground text-xs">
+                검색 결과가 없습니다. 아래에 직접 입력해주세요.
+              </p>
             )}
           </div>
 
@@ -222,7 +260,8 @@ export function RegistrationForm({
             </div>
             {regForm.selectedItems.length > 0 && (
               <p className="text-sm text-muted-foreground">
-                예상 소요시간: <span className="font-medium text-foreground">{selectedTotalMinutes}분</span>
+                예상 소요시간:{" "}
+                <span className="font-medium text-foreground">{selectedTotalMinutes}분</span>
               </p>
             )}
           </div>

@@ -1,61 +1,68 @@
 export type ServiceItem = {
-  id: string;
+  id: number;
   value: string;
   label: string;
   waitTime: number;
+  autoUpdate: boolean; // 실측 기반 자동 갱신 여부
   isActive: boolean;
+  createdAt?: string; // ISO
+  updatedAt?: string;
+};
+
+export type ServiceStat = {
+  serviceId: number;
+  value: string;
+  label: string;
+  waitTime: number; // 현재 설정값
+  autoUpdate: boolean;
+  sampleSize: number;
+  avgMinutes: number | null; // 절사평균(상하위 10% 제거) — 표본 충분할 때만
+  medianMinutes: number | null;
+  minMinutes: number | null;
+  maxMinutes: number | null;
+};
+
+export type SpecialtyItem = {
+  id: number;
+  name: string;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type DoctorItem = {
-  id: string;
+  id: number;
   name: string;
   specialty: string;
   room: string;
+  phone?: string | null;
+  email?: string | null;
   isActive: boolean;
-  phone?: string;
-  email?: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type PatientItem = {
-  id: string;
+  id: number;
+  code: string; // "P0001" 외부 표기
   name: string;
-  age: number;
   phone: string;
-  lastVisit: string;
+  age?: number | null;
+  notes?: string | null;
+  lastVisit?: string | null; // ISO
   isActive: boolean;
-  notes?: string;
-};
-
-export type ReservationData = {
-  reservationId: string;
-  name: string;
-  patientId: string;
-  phone: string;
-  service: string;
-  date: string; // yyyy-mm-dd
-  timeSlot: string; // HH:mm
-  estimatedWaitTime: number;
-  createdAt: number; // epoch ms
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type WeekdayToken = "ALL" | "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT" | "SUN";
 
 export type OperatingHoursRule = {
-  dayOfWeek: WeekdayToken; // MON~SUN (ALL은 기본값)
+  dayOfWeek: WeekdayToken;
   openTime: string; // "09:00"
   closeTime: string; // "18:00"
-  isClosed: boolean; // 휴무일
-  hasLunch?: boolean; // 점심시간 사용 여부
-  lunchStart?: string; // "12:00" (hasLunch=true일 때만 유효)
-  lunchEnd?: string; // "13:00"
-};
-
-export type ReservationCapacityRule = {
-  id: string;
-  service: string; // service value or "ALL"
-  dayOfWeek: WeekdayToken;
-  perSlot?: number | null;
-  perDay?: number | null;
-  isActive: boolean;
-  note?: string;
+  isClosed: boolean;
+  hasLunch?: boolean;
+  lunchStart?: string;
+  lunchEnd?: string;
 };

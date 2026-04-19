@@ -175,7 +175,7 @@ pnpm install
 pnpm dev
 ```
 
-브라우저에서 [http://localhost:3000](http://localhost:3000) 을 열면 됩니다.
+브라우저에서 [http://localhost:4000](http://localhost:4000) 을 열면 됩니다.
 
 ### 빌드 및 실행
 
@@ -223,7 +223,7 @@ pnpm start
 ## 환경 변수
 
 ```env
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_APP_URL=http://localhost:4000
 ADMIN_SECRET=change-me
 NEXT_PUBLIC_RESERVATION_MAX_PER_SLOT=4
 NEXT_PUBLIC_RESERVATION_MAX_PER_DAY=40

@@ -1,29 +1,37 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Bell, BellOff, RefreshCw } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { RefreshCw } from "lucide-react";
 
-import { getActiveDoctors, getActiveServices } from "@/lib/storage";
 import type { QueueItem } from "@/types/queue";
+import { toast } from "sonner";
 
 import { StatsCards } from "@/components/admin/stats-cards";
 import { RegistrationForm } from "@/components/admin/registration-form";
 import { DoctorKanban } from "@/components/admin/doctor-kanban";
 import { CompletedList } from "@/components/admin/completed-list";
+import { useServices, useDoctors } from "@/lib/useMasterData";
+import { useConfirm } from "@/components/confirm-dialog";
 
 export default function AdminDashboard() {
+  const confirm = useConfirm();
   const [queues, setQueues] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [serviceOptions, setServiceOptions] = useState(getActiveServices());
-  const [doctorOptions, setDoctorOptions] = useState<{ value: string; label: string }[]>([]);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [notificationPermission, setNotificationPermission] =
-    useState<NotificationPermission>("default");
-  const lastConfirmedCountRef = useRef(0);
+
+  // 진료항목 + 의사 마스터 데이터 (DB 기반)
+  const { data: servicesRaw = [] } = useServices(true);
+  const { data: doctorsRaw = [] } = useDoctors(true);
+
+  const serviceOptions = servicesRaw.map((s) => ({
+    value: s.value,
+    label: s.label,
+    waitTime: s.waitTime,
+  }));
+  const doctorOptions = doctorsRaw.map((d) => ({
+    value: d.name,
+    label: `${d.name} (${d.specialty} - ${d.room}호)`,
+  }));
 
   const fetchQueues = useCallback(
     async (showRefreshing = false) => {
@@ -38,30 +46,7 @@ export default function AdminDashboard() {
         if (!response.ok) throw new Error("Failed to fetch queues");
 
         const data = await response.json();
-        const newQueues: QueueItem[] = data.queues;
-        setQueues(newQueues);
-
-        // 신규 접수 알림
-        const activeCount = newQueues.filter(
-          (q) => q.status === "confirmed" || q.status === "in_progress"
-        ).length;
-        if (activeCount > lastConfirmedCountRef.current && lastConfirmedCountRef.current >= 0) {
-          if (notificationPermission === "granted") {
-            new Notification("대기열 업데이트", {
-              body: `현재 대기 ${activeCount}명`,
-              icon: "/favicon.ico",
-            });
-          }
-          if (soundEnabled) {
-            try {
-              const audio = new Audio("/notification.mp3");
-              audio.play().catch(() => {});
-            } catch {
-              // ignore
-            }
-          }
-        }
-        lastConfirmedCountRef.current = activeCount;
+        setQueues(data.queues);
       } catch (error) {
         console.error("대기열 조회 실패:", error);
       } finally {
@@ -69,7 +54,7 @@ export default function AdminDashboard() {
         if (showRefreshing) setTimeout(() => setRefreshing(false), 500);
       }
     },
-    [notificationPermission, soundEnabled]
+    []
   );
 
   // 접수 처리
@@ -97,6 +82,7 @@ export default function AdminDashboard() {
       throw new Error(err.error || "접수 실패");
     }
 
+    toast.success(`${data.name}님 접수 완료`);
     await fetchQueues();
   };
 
@@ -109,7 +95,7 @@ export default function AdminDashboard() {
     const labels: Record<string, string> = {
       startTreatment: "진료 시작",
       complete: "진료 완료",
-      adminCancel: "취소",
+      adminCancel: "접수 취소",
     };
 
     try {
@@ -124,43 +110,37 @@ export default function AdminDashboard() {
         throw new Error(err.error || `${labels[action]} 실패`);
       }
 
+      toast.success(`${labels[action]} 처리됨`);
       await fetchQueues();
     } catch (error) {
       console.error(`${labels[action]} 실패:`, error);
-      alert(`${labels[action]}에 실패했습니다.`);
+      toast.error(error instanceof Error ? error.message : `${labels[action]}에 실패했습니다.`);
     }
   };
 
   const handleDelete = async (token: string) => {
-    if (!confirm("정말로 삭제하시겠습니까?")) return;
+    const ok = await confirm({
+      title: "접수 영구 삭제",
+      description: "선택한 접수를 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.",
+      confirmText: "삭제",
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       const response = await fetch(`/api/queue?token=${encodeURIComponent(token)}`, {
         method: "DELETE",
       });
       if (!response.ok) throw new Error("Failed to delete");
+      toast.success("삭제되었습니다");
       await fetchQueues();
     } catch (error) {
       console.error("삭제 실패:", error);
-      alert("삭제에 실패했습니다.");
-    }
-  };
-
-  const requestNotificationPermission = async () => {
-    if ("Notification" in window) {
-      const perm = await Notification.requestPermission();
-      setNotificationPermission(perm);
+      toast.error("삭제에 실패했습니다.");
     }
   };
 
   useEffect(() => {
-    try {
-      setServiceOptions(getActiveServices());
-      setDoctorOptions(getActiveDoctors());
-    } catch {
-      // ignore
-    }
     fetchQueues();
-    if ("Notification" in window) setNotificationPermission(Notification.permission);
 
     // 탭 활성 시에만 폴링
     let interval = setInterval(() => fetchQueues(), 10000);
@@ -201,27 +181,6 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6 p-6">
-      {/* 알림 설정 바 */}
-      <div className="flex items-center justify-end gap-4">
-        <div className="flex items-center gap-2">
-          {soundEnabled ? (
-            <Bell className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <BellOff className="h-4 w-4 text-muted-foreground" />
-          )}
-          <Label htmlFor="sound-toggle" className="text-sm">
-            알림음
-          </Label>
-          <Switch id="sound-toggle" checked={soundEnabled} onCheckedChange={setSoundEnabled} />
-        </div>
-        {notificationPermission !== "granted" && (
-          <Button variant="outline" size="sm" onClick={requestNotificationPermission}>
-            <Bell className="mr-2 h-4 w-4" />
-            브라우저 알림 허용
-          </Button>
-        )}
-      </div>
-
       <StatsCards
         confirmed={confirmedQueues.length}
         inProgress={inProgressQueues.length}

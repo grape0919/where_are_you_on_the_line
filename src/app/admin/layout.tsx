@@ -14,8 +14,7 @@ import {
   Menu,
   X,
   Contact,
-  Calendar,
-  SlidersHorizontal,
+  BookOpen,
 } from "lucide-react";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { SystemStatusBanner } from "@/components/system-status-banner";
@@ -32,9 +31,19 @@ const sidebarItems = [
     icon: Stethoscope,
   },
   {
+    title: "전문과목 관리",
+    href: "/admin/specialties",
+    icon: BookOpen,
+  },
+  {
     title: "의료진 관리",
     href: "/admin/doctors",
     icon: Contact,
+  },
+  {
+    title: "환자 관리",
+    href: "/admin/patients",
+    icon: Users,
   },
   {
     title: "설정",

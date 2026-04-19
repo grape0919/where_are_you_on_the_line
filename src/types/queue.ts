@@ -9,6 +9,7 @@ export type QueueStatus = (typeof QUEUE_STATUSES)[keyof typeof QUEUE_STATUSES];
 
 export type QueueData = {
   token: string;
+  patientId?: number | null; // 환자 마스터 FK
   name: string;
   phone: string;
   treatmentItems: string[]; // 진료항목 복수 선택 (e.g. ["일반진료", "검사"])

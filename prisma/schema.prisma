@@ -10,6 +10,8 @@ datasource db {
 model Queue {
   id        Int      @id @default(autoincrement())
   token     String   @unique
+  patientId Int?     // 환자 마스터와 연결 (soft — phone 기반 upsert 결과)
+  patient   Patient? @relation(fields: [patientId], references: [id])
   name      String
   phone     String
   treatmentItems     String[]
@@ -32,6 +34,7 @@ model Queue {
   @@index([doctor, status])
   @@index([createdAt])
   @@index([status, createdAt])
+  @@index([patientId])
   @@map("queues")
 }
 
@@ -41,4 +44,67 @@ model Setting {
   value String // JSON string
 
   @@map("settings")
+}
+
+// 진료항목 (마스터 데이터)
+model Service {
+  id         Int      @id @default(autoincrement())
+  value      String   @unique // 내부 키 (예: "허리치료")
+  label      String   // 표시명
+  waitTime   Int      // 예상 소요시간(분)
+  autoUpdate Boolean  @default(false) // true면 실측 기반 자동 갱신 대상
+  isActive   Boolean  @default(true)  // soft delete 용도 (기록 보존)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("services")
+}
+
+// 전문과목 (마스터 데이터)
+model Specialty {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  isActive  Boolean  @default(true) // soft delete
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("specialties")
+}
+
+// 의사 (마스터 데이터)
+model Doctor {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  specialty String
+  room      String
+  phone     String?
+  email     String?
+  isActive  Boolean  @default(true) // soft delete
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("doctors")
+}
+
+// 환자 (마스터 데이터)
+model Patient {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique // "P0001" 형식 — 외부 표기용
+  name      String
+  phone     String
+  age       Int?
+  notes     String?
+  lastVisit DateTime? // 마지막 방문일
+  isActive  Boolean  @default(true) // soft delete
+  queues    Queue[]  // 방문 이력 (접수된 Queue 목록)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([phone])
+  @@index([name])
+  @@map("patients")
 }

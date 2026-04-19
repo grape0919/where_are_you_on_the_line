@@ -12,7 +12,7 @@ Hospital (올바른정형외과) patient queue management system — handles pat
 
 ```bash
 pnpm install          # install dependencies
-pnpm dev              # dev server with Turbopack (localhost:3000)
+pnpm dev              # dev server with Turbopack (localhost:4000)
 pnpm build            # production build (uses Turbopack)
 pnpm lint             # ESLint
 pnpm format           # Prettier
