@@ -41,7 +41,7 @@ describe("notification", () => {
 
     checkAndNotifyApproaching(store);
 
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("[Notification]"));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("[Notification/dev]"));
   });
 
   it("대기시간이 임계값보다 크면 알림을 보내지 않는다", async () => {

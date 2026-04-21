@@ -193,7 +193,7 @@ export async function POST(request: NextRequest) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
     const queueUrl = `/queue?token=${encodeURIComponent(token)}`;
 
-    // 접수 완료 알림 발송 (Phase 2에서 실제 채널 연동)
+    // 접수 완료 알림 발송 (알리고 SMS, 실패해도 접수 자체는 성공)
     sendNotification({
       phone,
       name: name.trim(),

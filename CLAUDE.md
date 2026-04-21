@@ -53,7 +53,8 @@ CI runs lint, typecheck, and test on PRs to `main`.
 - `postgresQueueStore.ts` — `PostgresQueueStore` implements `QueueStore` with PostgreSQL persistence. Uses write-through cache (in-memory Map + async DB writes). `loadFromDb()` hydrates cache on server start.
 - `queueStore.ts` — `QueueStore` interface with `InMemoryQueueStore` implementation. Key helpers: `getActiveQueue` (confirmed + in_progress, sorted by createdAt), `computeQueueMetrics` (per-patient wait metrics within doctor's queue), `recalculateAllMetrics` (bulk recalculate all active patients grouped by doctor). `RedisQueueStore` is a placeholder.
 - `autoReset.ts` — operating hours stored server-side in-memory (`OperatingHoursRule[]`). `startAutoResetScheduler` runs a 1-minute interval that calls `store.clear()` when current time ≥ `closeTime + 2h`. Also exposes `getOperatingHours`/`setOperatingHours` used by `/api/settings`.
-- `notification.ts` — 알림 발송 인터페이스. `sendNotification(payload)` is a placeholder (Phase 2 — 카카오 알림톡 or SMS). `checkAndNotifyApproaching(store)` auto-detects confirmed patients with ETA ≤ 10 min and fires a one-time approaching notification per patient. Called after every `recalculateAllMetrics`. Notification history is in-memory (`Set<token>`) and cleared on patient complete/cancel/queue reset.
+- `notification.ts` — 알림 발송. `sendNotification(payload)`은 알리고 환경변수 (`ALIGO_API_KEY`/`ALIGO_USER_ID`/`ALIGO_SENDER`)가 설정되면 실제 SMS 발송, 아니면 콘솔 로그만 (개발 모드). `checkAndNotifyApproaching(store)` auto-detects confirmed patients with ETA ≤ 10 min and fires a one-time approaching notification per patient. Called after every `recalculateAllMetrics`. Notification history is in-memory (`Set<token>`) and cleared on patient complete/cancel/queue reset.
+- `aligoSms.ts` — 알리고 SMS API 클라이언트 (`https://apis.aligo.in/send/`). `sendAligoSms({receiver, msg, title?})` 단일 엔트리. SMS/LMS는 msg 길이로 자동 분기. `ALIGO_TESTMODE=Y` 로 실제 발송 없이 테스트 가능.
 - `useQueue.ts` — React Query hook for patient queue polling
 - `useReservation.ts` — reservation CRUD hook (localStorage-backed)
 - `adminAuth.ts` — admin session cookie creation/verification
@@ -79,17 +80,17 @@ Two server-side data endpoints:
 
 Admin dashboard requests authenticate via the admin session cookie (verified server-side on each request). Master data (services, doctors, patients, capacity rules) is managed entirely client-side in localStorage via hooks.
 
-### Notification flow (Phase 2 placeholder)
-
-All notification calls currently log to console only. Actual delivery channel (카카오 알림톡 or SMS) is undecided.
+### Notification flow (Aligo SMS)
 
 | Trigger | Type | Timing |
 |---------|------|--------|
-| 환자 접수 (POST /api/queue) | `registration` | 즉시 |
+| 환자 접수 (POST /api/queue) | `registration` | 즉시 (순번·예상대기·조회URL 포함) |
 | 예상 대기 ≤ 10분 (recalculate 후) | `approaching` | 자동 감지, 환자당 1회 |
 | 진료 시작 (startTreatment) | `in_progress` | 현재 비활성 (주석 처리) |
 
-`notification.ts` exports: `sendNotification`, `checkAndNotifyApproaching`, `clearApproachingNotification`, `clearAllApproachingNotifications`. Integration points are in `/api/queue` route handlers and `autoReset.ts` scheduler.
+발송 채널: **알리고 SMS** (`aligoSms.ts`). 3개 env (`ALIGO_API_KEY`, `ALIGO_USER_ID`, `ALIGO_SENDER`) 모두 설정 시 실제 발송, 아니면 `[Notification/dev]` 콘솔 로그만. `ALIGO_TESTMODE=Y`로 과금 없이 테스트 가능.
+
+메시지 템플릿은 `notification.ts:buildMessage()`에 정의. SMS 90자 초과 시 알리고가 LMS로 자동 분기. Notification history (`approachingNotifiedTokens`)는 메모리 `Set<token>`이며 환자 완료/취소/대기열 초기화 시 삭제.
 
 ### Queue status machine
 

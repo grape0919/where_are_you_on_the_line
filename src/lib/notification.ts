@@ -1,5 +1,5 @@
-import type { QueueData } from "@/types/queue";
 import type { QueueStore } from "@/lib/queueStore";
+import { isAligoConfigured, sendAligoSms } from "@/lib/aligoSms";
 
 // 호출 임박 알림 기준 (분)
 export const APPROACHING_THRESHOLD_MINUTES = 10;
@@ -18,7 +18,7 @@ export function clearAllApproachingNotifications(): void {
 }
 
 // ────────────────────────────────────────────────────────────
-// 실제 알림 발송 함수 (Phase 2에서 채널 연동)
+// 메시지 템플릿
 // ────────────────────────────────────────────────────────────
 
 export type NotificationType = "registration" | "approaching" | "in_progress";
@@ -32,38 +32,77 @@ export interface NotificationPayload {
   queueUrl?: string;
 }
 
+const HOSPITAL_NAME = process.env.NEXT_PUBLIC_HOSPITAL_NAME || "올바른정형외과";
+
+function buildMessage(payload: NotificationPayload): string {
+  const waitText = payload.estimatedWaitMinutes
+    ? `예상 대기 약 ${payload.estimatedWaitMinutes}분`
+    : "";
+
+  switch (payload.type) {
+    case "registration": {
+      const lines = [
+        `[${HOSPITAL_NAME}]`,
+        `${payload.name}님 접수 완료`,
+        payload.queuePosition ? `순번: ${payload.queuePosition}번` : null,
+        waitText || null,
+        payload.queueUrl ? `대기현황: ${payload.queueUrl}` : null,
+      ].filter(Boolean);
+      return lines.join("\n");
+    }
+    case "approaching": {
+      const lines = [
+        `[${HOSPITAL_NAME}]`,
+        `${payload.name}님 곧 호출됩니다.`,
+        "진료실 근처에서 대기해주세요.",
+      ];
+      return lines.join("\n");
+    }
+    case "in_progress": {
+      return `[${HOSPITAL_NAME}]\n${payload.name}님 진료를 시작합니다.`;
+    }
+    default:
+      return `[${HOSPITAL_NAME}] ${payload.name}님`;
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+// 알림 발송 (알리고 SMS)
+// ────────────────────────────────────────────────────────────
+
+const TYPE_LABEL: Record<NotificationType, string> = {
+  registration: "접수 완료",
+  approaching: "호출 임박",
+  in_progress: "진료 시작",
+};
+
 /**
- * 알림 발송 인터페이스 (플레이스홀더)
- * Phase 2에서 카카오 알림톡 또는 SMS API로 교체 예정.
+ * 알림 발송. 알리고 환경변수가 설정되면 실제 SMS 발송,
+ * 아니면 콘솔 로그만 남김 (개발 환경).
  */
 export async function sendNotification(payload: NotificationPayload): Promise<void> {
-  const label: Record<NotificationType, string> = {
-    registration: "접수 완료",
-    approaching: "호출 임박",
-    in_progress: "진료 시작",
-  };
+  const msg = buildMessage(payload);
 
-  console.log(
-    `[Notification] ${label[payload.type]} — ${payload.name} (${payload.phone})` +
-      (payload.estimatedWaitMinutes != null ? `, 예상 대기 ${payload.estimatedWaitMinutes}분` : "") +
-      (payload.queueUrl ? `, URL: ${payload.queueUrl}` : "")
-  );
+  if (!isAligoConfigured()) {
+    console.log(
+      `[Notification/dev] ${TYPE_LABEL[payload.type]} → ${payload.name} (${payload.phone})\n${msg}`
+    );
+    return;
+  }
 
-  // TODO: Phase 2 — 카카오 알림톡 또는 SMS 발송
-  // 채널 미정: 아래 구현 중 하나를 선택
-  //
-  // [Option A] 카카오 알림톡
-  // await kakaoAlimtalk.send({
-  //   to: payload.phone,
-  //   templateCode: TEMPLATE_CODES[payload.type],
-  //   args: { name: payload.name, waitMinutes: payload.estimatedWaitMinutes, url: payload.queueUrl },
-  // });
-  //
-  // [Option B] SMS (twilio / coolsms)
-  // await smsClient.messages.create({
-  //   to: payload.phone,
-  //   body: buildSmsBody(payload),
-  // });
+  try {
+    const res = await sendAligoSms({ receiver: payload.phone, msg });
+    console.log(
+      `[Notification/aligo] ${TYPE_LABEL[payload.type]} → ${payload.name} (${payload.phone}) ` +
+        `type=${res.msg_type} msg_id=${res.msg_id}`
+    );
+  } catch (err) {
+    console.error(
+      `[Notification/aligo] ${TYPE_LABEL[payload.type]} 발송 실패 → ${payload.phone}:`,
+      err instanceof Error ? err.message : err
+    );
+    throw err;
+  }
 }
 
 // ────────────────────────────────────────────────────────────
