@@ -21,9 +21,9 @@ function timingSafeEqualString(a: string, b: string): boolean {
   return diff === 0;
 }
 
-// Rate limit: IP당 15분간 최대 5회 시도
+// Rate limit: IP당 30초간 최대 5회 시도 (실 업무 환경에서 차단 시간 짧게)
 const LOGIN_MAX_ATTEMPTS = 5;
-const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_WINDOW_MS = 30 * 1000;
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
 function getClientIp(request: NextRequest): string {
