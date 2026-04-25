@@ -2,6 +2,10 @@
 # PostgreSQL 복구 스크립트.
 # 사용: bash scripts/restore.sh /home/allrightclinic/backups/allright_20260424_030000.sql.gz
 
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
+fi
+
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/home/allrightclinic}"

@@ -4,6 +4,10 @@
 # 매일 새벽 자동 실행: crontab -e 후 아래 한 줄 추가
 #   0 3 * * * cd /home/allrightclinic && bash scripts/backup.sh >> /var/log/allright-backup.log 2>&1
 
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
+fi
+
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/home/allrightclinic}"
