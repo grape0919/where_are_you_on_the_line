@@ -6,6 +6,15 @@ type LoginRequestBody = {
   password?: string;
 };
 
+/**
+ * 쿠키 secure 플래그 결정.
+ * - NEXT_PUBLIC_APP_URL이 https://면 true (HTTPS 환경)
+ * - http://면 false (HTTP 환경 — secure 쿠키 사용 시 브라우저가 전송 안 함)
+ */
+function isHttpsApp(): boolean {
+  return process.env.NEXT_PUBLIC_APP_URL?.startsWith("https://") ?? false;
+}
+
 function jsonError(message: string, status: number): NextResponse {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
@@ -101,7 +110,7 @@ export async function POST(request: NextRequest) {
     value,
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isHttpsApp(),
     path: "/",
     maxAge: 12 * 60 * 60,
   });
@@ -115,7 +124,7 @@ export async function DELETE() {
     value: "",
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isHttpsApp(),
     path: "/",
     maxAge: 0,
   });

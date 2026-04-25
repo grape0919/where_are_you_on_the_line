@@ -16,6 +16,7 @@ export async function middleware(request: NextRequest) {
 
   const secret = process.env.ADMIN_SECRET;
   if (!secret) {
+    console.warn(`[middleware] ADMIN_SECRET 미설정 → ${pathname} 차단`);
     const url = request.nextUrl.clone();
     url.pathname = "/admin/login";
     url.searchParams.set("error", "missing-secret");
@@ -28,6 +29,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  console.warn(
+    `[middleware] 인증 실패 → ${pathname} (cookie: ${sessionValue ? "있음" : "없음"})`
+  );
   const url = request.nextUrl.clone();
   url.pathname = "/admin/login";
   url.searchParams.set("next", `${pathname}${search}`);
