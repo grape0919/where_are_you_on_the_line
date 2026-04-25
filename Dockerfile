@@ -16,6 +16,9 @@ COPY . .
 RUN npx prisma generate
 
 # Next.js 빌드 (output: standalone 모드)
+# 빌드 중 page data collection이 prisma 모듈을 evaluate하므로 dummy DATABASE_URL 주입.
+# 실제 런타임 값은 컨테이너 실행 시 .env.docker로 덮어씀.
+ENV DATABASE_URL="postgresql://dummy:dummy@build-time:5432/dummy"
 RUN pnpm build
 
 # ── Stage 3: Production ──
