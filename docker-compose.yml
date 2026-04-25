@@ -64,6 +64,8 @@ services:
 
 volumes:
   db_data:
+    # 명시적 이름 부여 → 실수로 'docker compose down -v' 해도 사용자 인지 가능
+    name: allright_db_data
 
 networks:
   app:

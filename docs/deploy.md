@@ -20,6 +20,23 @@ deploy.sh:
 
 ---
 
+## 0. 첫 배포 빠른 체크리스트
+
+```
+[ ] (서버) git clone (deploy key 등록 또는 PAT URL)
+[ ] (서버) .env.docker 작성 (ADMIN_SECRET, POSTGRES_PASSWORD 등)
+[ ] (서버) bash scripts/deploy.sh → 첫 배포
+[ ] (서버) http://203.245.41.221:4000/api/health → 200 OK 확인
+[ ] (서버) bash prisma/seed 한 번 실행 (초기 마스터 데이터)
+[ ] (서버) 백업 cron 등록 (scripts/backup.sh)
+[ ] (서버) ufw 방화벽 (22, 4000)
+[ ] (GitHub) Secrets 등록: SSH_HOST, SSH_USER, SSH_PRIVATE_KEY
+[ ] (로컬) git push → Actions 자동 배포 동작 확인
+[ ] (브라우저) /admin/login → 로그인 후 환자 1명 접수 → DB 저장 확인
+```
+
+---
+
 ## 1. 서버 최초 세팅 (한 번만)
 
 SSH로 서버 접속 후 다음을 실행:
@@ -126,6 +143,24 @@ bash scripts/deploy.sh
 
 완료되면 `http://203.245.41.221:4000/api/health` 에서 `{"status":"ok",...}` 응답 확인.
 
+### 1-6. 초기 마스터 데이터 seed (첫 배포 시 1회)
+
+```bash
+docker compose run --rm migrate npx tsx prisma/seed.ts
+```
+
+기본 진료항목 5종 + 의사 3명 + 전문과목 6종을 등록합니다. 이미 데이터가 있으면 upsert 처리되어 안전.
+
+### 1-7. 백업 cron 등록 (필수)
+
+```bash
+sudo crontab -e
+# 추가:
+0 3 * * * cd /home/allrightclinic && bash scripts/backup.sh >> /var/log/allright-backup.log 2>&1
+```
+
+자세한 백업 정책은 §6 참조.
+
 ---
 
 ## 2. GitHub Actions 자동 배포 설정
@@ -215,11 +250,52 @@ queue.example.com {
 
 ---
 
-## 6. DB 백업
+## 6. DB 영속성 + 백업
+
+### 6-1. 데이터 위치 (영속)
+
+PostgreSQL 데이터는 **Docker named volume `allright_db_data`** 에 저장됩니다:
+- 호스트 경로: `/var/lib/docker/volumes/allright_db_data/_data`
+- 살아남는 명령: `docker compose down`, `restart`, `up -d --force-recreate`, 서버 재부팅
+- **삭제되는 명령**: ⚠️ `docker compose down -v`, `docker volume rm allright_db_data`
+
+### 6-2. 일일 자동 백업 (필수)
 
 ```bash
-# 일일 백업 cron (서버에서)
-crontab -e
-# 추가:
-0 2 * * * docker exec allright-db pg_dump -U allright allright | gzip > /home/allrightclinic/backups/allright-$(date +\%Y\%m\%d).sql.gz
+# 서버에서 1회 실행
+sudo crontab -e
+# 다음 한 줄 추가 (매일 새벽 3시):
+0 3 * * * cd /home/allrightclinic && bash scripts/backup.sh >> /var/log/allright-backup.log 2>&1
+```
+
+백업 파일: `/home/allrightclinic/backups/allright_YYYYMMDD_HHMMSS.sql.gz`
+- 30일 이상 된 백업 자동 정리
+- pg_dump → gzip 압축 (보통 수십 KB ~ 수 MB)
+
+### 6-3. 수동 백업
+
+```bash
+cd /home/allrightclinic
+bash scripts/backup.sh
+```
+
+### 6-4. 복구
+
+```bash
+cd /home/allrightclinic
+bash scripts/restore.sh backups/allright_20260424_030000.sql.gz
+# 확인 메시지 → "yes" 입력 → 복구 (웹 일시 중지 → 복구 → 재시작)
+```
+
+### 6-5. 외부 백업 (강력 권장)
+
+VPS 자체 장애 대비 — 백업 파일을 외부로 주기 동기화:
+
+```bash
+# 옵션 A: 로컬 PC로 rsync (수동/cron)
+rsync -avz deploy@203.245.41.221:/home/allrightclinic/backups/ ~/allright-backups/
+
+# 옵션 B: AWS S3 (s3cmd 또는 awscli 설치 후)
+# crontab 추가:
+30 3 * * * aws s3 sync /home/allrightclinic/backups/ s3://my-bucket/allright/ --storage-class STANDARD_IA
 ```
