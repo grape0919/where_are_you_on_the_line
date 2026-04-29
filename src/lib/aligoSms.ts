@@ -93,7 +93,17 @@ export async function sendAligoSms(payload: AligoSendPayload): Promise<AligoResp
 
   const data = (await res.json()) as AligoResponse;
   if (data.result_code !== 1) {
-    throw new Error(`Aligo API error: ${data.message}`);
+    // 자주 발생하는 케이스 가이드
+    let hint = "";
+    if (data.message?.includes("IP")) {
+      hint =
+        " | 해결: 알리고 콘솔(smartsms.aligo.in) → API 설정 → 허용 IP에 서버 IP 등록";
+    } else if (data.message?.includes("발신번호") || data.message?.includes("sender")) {
+      hint = " | 해결: 알리고 콘솔 → 발신번호 관리에서 ALIGO_SENDER 값 등록/인증";
+    } else if (data.message?.includes("API")) {
+      hint = " | 해결: ALIGO_API_KEY/ALIGO_USER_ID 확인";
+    }
+    throw new Error(`Aligo API error: ${data.message}${hint}`);
   }
   return data;
 }
