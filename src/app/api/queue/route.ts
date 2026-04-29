@@ -9,9 +9,11 @@ import {
 import { ADMIN_COOKIE_NAME, verifyAdminSessionValue } from "@/lib/adminAuth";
 import { startAutoResetScheduler, loadOperatingHoursFromDb } from "@/lib/autoReset";
 import {
+  APPROACHING_THRESHOLD_MINUTES,
   checkAndNotifyApproaching,
   clearApproachingNotification,
   clearAllApproachingNotifications,
+  markApproachingNotified,
   sendNotification,
 } from "@/lib/notification";
 import { PostgresQueueStore } from "@/lib/postgresQueueStore";
@@ -193,6 +195,13 @@ export async function POST(request: NextRequest) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
     const queueUrl = `/queue?token=${encodeURIComponent(token)}`;
 
+    // 접수 시점에 이미 임박 상태(ETA ≤ 임계값)면 메시지 통합 발송 (SMS 1통).
+    // checkAndNotifyApproaching의 중복 발송을 막기 위해 미리 토큰 등록.
+    const isImmediate = updated.estimatedWaitTime <= APPROACHING_THRESHOLD_MINUTES;
+    if (isImmediate) {
+      markApproachingNotified(token);
+    }
+
     // 접수 완료 알림 발송 (알리고 SMS, 실패해도 접수 자체는 성공)
     sendNotification({
       phone,
@@ -203,7 +212,7 @@ export async function POST(request: NextRequest) {
       queueUrl: appUrl ? `${appUrl}${queueUrl}` : queueUrl,
     }).catch((err) => console.error("[Notification] 접수 알림 발송 오류:", err));
 
-    // 임박 알림 대상 체크
+    // 임박 알림 대상 체크 (방금 접수한 환자는 위에서 등록되어 skip됨)
     checkAndNotifyApproaching(store, appUrl);
 
     return NextResponse.json({

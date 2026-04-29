@@ -3,6 +3,7 @@ import {
   checkAndNotifyApproaching,
   clearApproachingNotification,
   clearAllApproachingNotifications,
+  markApproachingNotified,
   APPROACHING_THRESHOLD_MINUTES,
 } from "@/lib/notification";
 import { InMemoryQueueStore } from "@/lib/queueStore";
@@ -74,6 +75,20 @@ describe("notification", () => {
     checkAndNotifyApproaching(store);
 
     expect(logSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("markApproachingNotified로 미리 등록된 환자는 임박 알림 skip", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const token = "T-PRE";
+    await store.set(makePatient({ token, estimatedWaitTime: 5 }));
+
+    // 접수 시점에 미리 임박 발송된 것으로 표시
+    markApproachingNotified(token);
+
+    checkAndNotifyApproaching(store);
+
+    // 임박 알림은 발송 안 됨 (이미 통합 메시지로 발송됨 가정)
+    expect(logSpy).not.toHaveBeenCalled();
   });
 
   it("in_progress 환자에게는 confirmed 알림을 보내지 않는다", async () => {

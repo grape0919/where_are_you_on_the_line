@@ -17,6 +17,15 @@ export function clearAllApproachingNotifications(): void {
   approachingNotifiedTokens.clear();
 }
 
+/**
+ * 임박 알림을 보낸 것으로 미리 표시.
+ * 접수 시점에 ETA가 임계값 이하라 접수 완료 메시지에 임박 안내를 합쳐 발송한 경우,
+ * 후속 checkAndNotifyApproaching이 동일 환자에게 중복 발송하지 않도록 사용.
+ */
+export function markApproachingNotified(token: string): void {
+  approachingNotifiedTokens.add(token);
+}
+
 // ────────────────────────────────────────────────────────────
 // 메시지 템플릿
 // ────────────────────────────────────────────────────────────
@@ -41,6 +50,21 @@ function buildMessage(payload: NotificationPayload): string {
 
   switch (payload.type) {
     case "registration": {
+      // ETA가 임계값 이하면 임박 안내를 합친 단일 메시지 발송
+      const isImmediate =
+        payload.estimatedWaitMinutes != null &&
+        payload.estimatedWaitMinutes <= APPROACHING_THRESHOLD_MINUTES;
+
+      if (isImmediate) {
+        const lines = [
+          `[${HOSPITAL_NAME}]`,
+          `${payload.name}님 접수 완료 — 곧 호출됩니다.`,
+          payload.queuePosition ? `순번: ${payload.queuePosition}번` : null,
+          "진료실 근처에서 대기해주세요.",
+        ].filter(Boolean);
+        return lines.join("\n");
+      }
+
       const lines = [
         `[${HOSPITAL_NAME}]`,
         `${payload.name}님 접수 완료`,
